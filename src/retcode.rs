@@ -1,0 +1,45 @@
+#![allow(dead_code)]
+
+use pbni::primitive::pblong;
+
+pub const OK: pblong = 0;
+pub const SUCCESS: pblong = 0;
+pub const ALLOW: pblong = 0;
+pub const PREVENT: pblong = 1;
+pub const FAILED: pblong = -1;
+pub const CANCELED: pblong = -2;
+pub const CANCELLED: pblong = -2;
+pub const E_INVALID_ARGUMENT: pblong = -3;
+pub const E_INVALID_IMAGE: pblong = -4;
+pub const E_INVALID_OBJECT: pblong = -5;
+pub const E_INVALID_TYPE: pblong = -6;
+pub const E_INVALID_TRANSACTION: pblong = -7;
+pub const E_INVALID_SQL: pblong = -8;
+pub const E_INVALID_DATA: pblong = -9;
+pub const E_INVALID_DATAOBJECT: pblong = -10;
+pub const E_INVALID_HANDLE: pblong = -11;
+pub const E_OUT_OF_BOUND: pblong = -12;
+pub const E_OUT_OF_RANGE: pblong = -13;
+pub const E_OUT_OF_MEMORY: pblong = -14;
+pub const E_FILE_NOT_FOUND: pblong = -15;
+pub const E_OBJECT_NOT_FOUND: pblong = -16;
+pub const E_DATA_NOT_FOUND: pblong = -17;
+pub const E_FUNCTION_NOT_FOUND: pblong = -18;
+pub const E_EVENT_NOT_FOUND: pblong = -19;
+pub const E_MEMBER_NOT_FOUND: pblong = -20;
+pub const E_VAR_NOT_FOUND: pblong = -21;
+pub const E_NOT_EXISTS: pblong = -22;
+pub const E_BUSY: pblong = -23;
+pub const E_TIME_OUT: pblong = -24;
+pub const E_ACCESS_DENIED: pblong = -25;
+pub const E_WIN32_ERROR: pblong = -26;
+pub const E_INTERNAL_ERROR: pblong = -27;
+pub const E_DB_ERROR: pblong = -28;
+pub const E_HTTP_ERROR: pblong = -29;
+pub const E_WINHTTP_ERROR: pblong = -30;
+pub const E_IO_ERROR: pblong = -31;
+pub const E_SQL_BIND_ARG_FAILED: pblong = -32;
+pub const E_RETRY: pblong = -33;
+pub const E_NO_SUPPORT: pblong = -2000;
+pub const E_NO_IMPLEMENTATION: pblong = -2001;
+pub const UNKNOWN: pblong = -4000;

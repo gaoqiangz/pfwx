@@ -1,0 +1,27 @@
+[package]
+name = "pfwx"
+version = "0.1.0"
+authors = ["金千枝（深圳）软件技术有限公司. All rights reserved."]
+edition = "2021"
+license = "BSD-2-Clause"
+description = "Experimental PowerFramework built on Rust "
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pbni-rs = { version = "0.1.0", default-features = false, features = ["pbx", "global_function", "nonvisualobject"] }
+dwparser = { version = "0.1.0", optional = true }
+
+[features]
+default = ["full"]
+full = ["parser"]
+
+parser = ["dwparser"]
+
+[patch.crates-io]
+pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
+pbni-codegen = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
+dwparser = { git = "https://github.com/gaoqiangz/dwparser.git" }
