@@ -13,13 +13,17 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pbni-rs = { version = "0.1.0", default-features = false, features = ["pbx", "global_function", "nonvisualobject"] }
-dwparser = { version = "0.1.0", optional = true }
+dwparser = { version = "0.1.0", features = ["full"], optional = true }
+serde_json = { version = "1.0.91", optional = true }
+
+[build-dependencies]
+winres = "0.1.12"
 
 [features]
 default = ["full"]
 full = ["parser"]
 
-parser = ["dwparser"]
+parser = ["dwparser", "serde_json"]
 
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
