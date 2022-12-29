@@ -13,6 +13,18 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pbni-rs = { version = "0.1.0", default-features = false, features = ["pbx", "global_function", "nonvisualobject"] }
+
+
+# reactor
+tokio = { version = "1.23.0", features = ["sync", "macros"], optional = true }
+futures-util = { version = "0.3.25", optional = true }
+windows = { version = "0.43.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader"], optional = true }
+backtrace = { version = "0.3.67", optional = true }
+
+# http
+reqwest = { version = "0.11.13", optional = true }
+
+# parser
 dwparser = { version = "0.1.0", features = ["full"], optional = true }
 serde_json = { version = "1.0.91", optional = true }
 
@@ -21,9 +33,11 @@ winres = "0.1.12"
 
 [features]
 default = ["full"]
-full = ["parser"]
+full = ["http", "parser"]
 
 parser = ["dwparser", "serde_json"]
+http = ["reactor", "reqwest"]
+reactor = ["tokio", "futures-util", "windows", "backtrace"]
 
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
