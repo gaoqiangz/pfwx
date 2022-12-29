@@ -108,7 +108,7 @@ impl SyncContext {
 
         if msg == WM_SYNC_CONTEXT {
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
-            let pack = Box::into_inner(Box::<MessagePack>::from_raw(mem::transmute(lparam)));
+            let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
             pack.tx.send(()).unwrap(); //接收
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
