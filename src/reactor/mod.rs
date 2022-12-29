@@ -6,6 +6,7 @@ use pbni::pbx::Session;
 use std::{
     future::Future, panic::{AssertUnwindSafe, UnwindSafe}, sync::{Arc, Weak}
 };
+use tokio::sync::oneshot;
 
 mod context;
 mod runtime;
@@ -25,7 +26,11 @@ pub trait SyncObject: UnwindSafe + 'static {
     ///
     /// - `fut` 异步任务
     /// - `handler` 接收`fut`执行结果并在当前(UI)线程中执行
-    fn spawn<F, H>(&mut self, fut: F, handler: H)
+    ///
+    /// # Returns
+    ///
+    /// `Cancellation`任务取消令牌
+    fn spawn<F, H>(&mut self, fut: F, handler: H) -> Cancellation
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -56,10 +61,14 @@ impl AliveWatch {
 ///
 /// # Parameters
 ///
-/// - `fut` 异步任务
 /// - `ctx` 回调处理对象传递给`handler`使用
+/// - `fut` 异步任务
 /// - `handler` 接收`fut`执行结果并在当前(UI)线程中执行
-pub fn spawn<T, F, H>(ctx: &mut T, fut: F, handler: H)
+///
+/// # Returns
+///
+/// `Cancellation`任务取消令牌
+pub fn spawn<T, F, H>(ctx: &mut T, fut: F, handler: H) -> Cancellation
 where
     T: SyncObject,
     F: Future + Send + 'static,
@@ -67,7 +76,8 @@ where
     H: Fn(&mut T, F::Output) + Send + UnwindSafe + 'static
 {
     let sync_ctx = SyncContext::current(ctx.session());
-    let tx = Runtime::global_sender();
+    let runtime_tx = Runtime::global_sender();
+    let (cancel_tx, cancel_rx) = oneshot::channel();
     //封装异步任务
     let task = {
         let handler = unsafe {
@@ -83,37 +93,53 @@ where
         let alive = ctx.alive().watch();
         let dispatcher = sync_ctx.dispatcher();
         async move {
-            unsafe {
-                match AssertUnwindSafe(fut).catch_unwind().await {
-                    Ok(rv) => {
-                        let param = UnsafeBox::pack(rv).cast::<()>();
-                        dispatcher.dispatch_invoke(param, handler, alive).await;
-                    },
-                    Err(e) => {
-                        let panic_info = match e.downcast_ref::<String>() {
-                            Some(e) => &e,
-                            None => {
-                                match e.downcast_ref::<&'static str>() {
-                                    Some(e) => e,
-                                    None => "unknown"
-                                }
+            let fut = AssertUnwindSafe(fut).catch_unwind();
+            loop {
+                tokio::select! {
+                    rv = &mut fut => {
+                        match rv {
+                            Ok(rv) => {
+                                let param = unsafe { UnsafeBox::pack(rv).cast::<()>() };
+                                dispatcher.dispatch_invoke(param, handler, alive).await;
                             },
-                        };
-                        dispatcher
-                            .dispatch_panic(format!(
-                                "{}\r\nbacktrace:\r\n{:?}",
-                                panic_info,
-                                backtrace::Backtrace::new()
-                            ))
-                            .await;
-                    }
+                            Err(e) => {
+                                let panic_info = match e.downcast_ref::<String>() {
+                                    Some(e) => &e,
+                                    None => {
+                                        match e.downcast_ref::<&'static str>() {
+                                            Some(e) => e,
+                                            None => "unknown"
+                                        }
+                                    },
+                                };
+                                dispatcher
+                                    .dispatch_panic(format!(
+                                        "{}\r\nbacktrace:\r\n{:?}",
+                                        panic_info,
+                                        backtrace::Backtrace::new()
+                                    ))
+                                    .await;
+                            }
+                        }
+                        break;
+                    },
+                    rv = &mut cancel_rx, if rv.is_ok() => break,
                 }
             }
         }
     };
-    if let Err(e) = tx.blocking_send(RuntimeMessage::Task(Box::pin(task))) {
+    if let Err(e) = runtime_tx.blocking_send(RuntimeMessage::Task(Box::pin(task))) {
         panic!("send message to background failed: {e}");
     }
+    Cancellation(cancel_tx)
+}
+
+/// 异步任务取消令牌
+pub struct Cancellation(oneshot::Sender<()>);
+
+impl Cancellation {
+    /// 取消异步任务
+    pub fn cancel(self) { let _ = self.0.send(()); }
 }
 
 /// 非类型安全的堆分配器
