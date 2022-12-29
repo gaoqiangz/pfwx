@@ -5,16 +5,27 @@ use tokio::{
 
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 
+/// 启动一个异步任务
+pub fn spawn<F>(fut: F)
+where
+    F: Future<Output = ()> + Send + 'static
+{
+    let runtime_tx = Runtime::global_sender();
+    if let Err(e) = runtime_tx.blocking_send(RuntimeMessage::Task(Box::pin(fut))) {
+        panic!("send message to background failed: {e}");
+    }
+}
+
+/// 运行时消息
+enum RuntimeMessage {
+    Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
+    Stop
+}
+
 /// 运行时
 pub struct Runtime {
     msg_tx: mpsc::Sender<RuntimeMessage>,
     stop_rx: Option<oneshot::Receiver<()>>
-}
-
-/// 运行时消息
-pub enum RuntimeMessage {
-    Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
-    Stop
 }
 
 impl Runtime {

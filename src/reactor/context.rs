@@ -1,4 +1,4 @@
-use super::{AliveWatch, Runtime, UnsafeBox};
+use super::{runtime::Runtime, AliveWatch, UnsafeBox};
 use pbni::{pbx::Session, pbx_throw};
 use std::{
     cell::RefCell, mem, panic::{self, UnwindSafe}, rc::Rc, sync::{
@@ -203,12 +203,12 @@ pub struct MessageDispatcher {
 }
 
 impl MessageDispatcher {
-    /// 派发回调请求给UI线程
+    /// 发起回调执行请求给UI线程
     ///
     /// # Safety
     ///
     /// 所有参数均为UI线程独占资源
-    pub(super) async fn dispatch_invoke(
+    pub(super) async fn invoke(
         &self,
         param: UnsafeBox<()>,
         handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + UnwindSafe + 'static>,
@@ -230,11 +230,7 @@ impl MessageDispatcher {
     }
 
     /// 派发异常信息给UI线程
-    ///
-    /// # Safety
-    ///
-    /// 所有参数均为UI线程独占资源
-    pub(super) async fn dispatch_panic(&self, info: String) {
+    pub(super) async fn panic(&self, info: String) {
         self.dispatch(MessagePayload::Panic(MessagePayloadPanic {
             info
         }))

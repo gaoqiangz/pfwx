@@ -12,14 +12,15 @@ mod context;
 mod runtime;
 
 use context::SyncContext;
-use runtime::{Runtime, RuntimeMessage};
 
 /// 可同步的对象抽象
 pub trait SyncObject: UnwindSafe + 'static {
     /// PB会话
     fn session(&self) -> &Session;
+
     /// 对象存活状态
     fn alive(&self) -> &AliveState;
+
     /// 启动一个异步任务
     ///
     /// # Parameters
@@ -36,7 +37,58 @@ pub trait SyncObject: UnwindSafe + 'static {
         F::Output: Send + 'static,
         H: Fn(&mut Self, F::Output) + Send + UnwindSafe + 'static
     {
-        self::spawn(self, fut, handler)
+        let sync_ctx = SyncContext::current(ctx.session());
+        let dispatcher = sync_ctx.dispatcher();
+        let handler = unsafe {
+            let this = UnsafePointer::from_raw(self as *mut T);
+            Box::new(move |param: UnsafeBox<()>, invoke: bool| {
+                let param = param.cast::<F::Output>().unpack();
+                if invoke {
+                    let this = this.into_raw();
+                    handler(&mut *this, param);
+                }
+            })
+        };
+        let alive = self.alive().watch();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        //封装异步任务
+        let fut = async move {
+            let fut = AssertUnwindSafe(fut).catch_unwind();
+            loop {
+                tokio::select! {
+                    rv = &mut fut => {
+                        match rv {
+                            Ok(rv) => {
+                                let param = unsafe { UnsafeBox::pack(rv).cast::<()>() };
+                                dispatcher.invoke(param, handler, alive).await;
+                            },
+                            Err(e) => {
+                                let panic_info = match e.downcast_ref::<String>() {
+                                    Some(e) => &e,
+                                    None => {
+                                        match e.downcast_ref::<&'static str>() {
+                                            Some(e) => e,
+                                            None => "unknown"
+                                        }
+                                    },
+                                };
+                                dispatcher
+                                    .panic(format!(
+                                        "{}\r\nbacktrace:\r\n{:?}",
+                                        panic_info,
+                                        backtrace::Backtrace::new()
+                                    ))
+                                    .await;
+                            }
+                        }
+                        break;
+                    },
+                    rv = &mut cancel_rx, if rv.is_ok() => break,
+                }
+            }
+        };
+        runtime::spawn(fut);
+        Cancellation(cancel_tx)
     }
 }
 
@@ -55,83 +107,6 @@ struct AliveWatch(Weak<()>);
 impl AliveWatch {
     fn is_alive(&self) -> bool { self.0.strong_count() != 0 }
     fn is_dead(&self) -> bool { self.0.strong_count() == 0 }
-}
-
-/// 启动一个异步任务
-///
-/// # Parameters
-///
-/// - `ctx` 回调处理对象传递给`handler`使用
-/// - `fut` 异步任务
-/// - `handler` 接收`fut`执行结果并在当前(UI)线程中执行
-///
-/// # Returns
-///
-/// `Cancellation`任务取消令牌
-pub fn spawn<T, F, H>(ctx: &mut T, fut: F, handler: H) -> Cancellation
-where
-    T: SyncObject,
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
-    H: Fn(&mut T, F::Output) + Send + UnwindSafe + 'static
-{
-    let sync_ctx = SyncContext::current(ctx.session());
-    let runtime_tx = Runtime::global_sender();
-    let (cancel_tx, cancel_rx) = oneshot::channel();
-    //封装异步任务
-    let task = {
-        let handler = unsafe {
-            let ctx = UnsafePointer::from_raw(ctx as *mut T);
-            Box::new(move |param: UnsafeBox<()>, invoke: bool| {
-                let param = param.cast::<F::Output>().unpack();
-                if invoke {
-                    let ctx = ctx.into_raw();
-                    handler(&mut *ctx, param);
-                }
-            })
-        };
-        let alive = ctx.alive().watch();
-        let dispatcher = sync_ctx.dispatcher();
-        async move {
-            let fut = AssertUnwindSafe(fut).catch_unwind();
-            loop {
-                tokio::select! {
-                    rv = &mut fut => {
-                        match rv {
-                            Ok(rv) => {
-                                let param = unsafe { UnsafeBox::pack(rv).cast::<()>() };
-                                dispatcher.dispatch_invoke(param, handler, alive).await;
-                            },
-                            Err(e) => {
-                                let panic_info = match e.downcast_ref::<String>() {
-                                    Some(e) => &e,
-                                    None => {
-                                        match e.downcast_ref::<&'static str>() {
-                                            Some(e) => e,
-                                            None => "unknown"
-                                        }
-                                    },
-                                };
-                                dispatcher
-                                    .dispatch_panic(format!(
-                                        "{}\r\nbacktrace:\r\n{:?}",
-                                        panic_info,
-                                        backtrace::Backtrace::new()
-                                    ))
-                                    .await;
-                            }
-                        }
-                        break;
-                    },
-                    rv = &mut cancel_rx, if rv.is_ok() => break,
-                }
-            }
-        }
-    };
-    if let Err(e) = runtime_tx.blocking_send(RuntimeMessage::Task(Box::pin(task))) {
-        panic!("send message to background failed: {e}");
-    }
-    Cancellation(cancel_tx)
 }
 
 /// 异步任务取消令牌
