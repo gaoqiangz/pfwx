@@ -1,4 +1,4 @@
-use crate::retcode;
+use crate::prelude::*;
 use dwparser::DWSyntax;
 use pbni::{pbx::*, prelude::*};
 use std::mem::transmute;
@@ -8,16 +8,10 @@ struct DWParser {
     inner: Option<DWParserInner>
 }
 
-#[nonvisualobject(name = "n_dwparser")]
+#[nonvisualobject(name = "nx_dwparser")]
 impl DWParser {
     #[constructor]
     fn new(_session: Session, _ctx: ContextObject) -> Self { Default::default() }
-
-    #[method]
-    fn version(&self) -> String { String::from("1.0") }
-
-    #[method]
-    fn copyright(&self) -> String { String::from(env!("CARGO_PKG_AUTHORS")) }
 
     /// 从DW语法解析
     ///

@@ -21,12 +21,11 @@ windows = { version = "0.43.0", features = ["Win32_Foundation", "Win32_UI_Window
 backtrace = { version = "0.3.67", optional = true }
 
 # http
-reqwest = { version = "0.11.13", optional = true }
+reqwest = { version = "0.11.13", features = ["blocking"], optional = true }
 
 # parser
 dwparser = { version = "0.1.0", features = ["full"], optional = true }
 serde_json = { version = "1.0.91", optional = true }
-tinyrand = "0.5.0"
 
 [build-dependencies]
 winres = "0.1.12"
