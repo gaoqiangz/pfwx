@@ -1,4 +1,4 @@
-use super::{handler::AliveWatch, runtime::Runtime, UnsafeBox};
+use super::{handler::AliveState, runtime::Runtime, UnsafeBox};
 use pbni::{pbx::Session, pbx_throw};
 use std::{
     cell::RefCell, mem, panic::{self, UnwindSafe}, rc::Rc, sync::{
@@ -38,8 +38,8 @@ impl SyncContext {
     }
 
     /// 消息派发器
-    pub fn dispatcher(&self) -> MessageDispatcher {
-        MessageDispatcher {
+    pub fn dispatcher(&self) -> Dispatcher {
+        Dispatcher {
             hwnd: self.inner.hwnd
         }
     }
@@ -109,7 +109,7 @@ impl SyncContext {
         if msg == WM_SYNC_CONTEXT {
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
             let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
-            pack.tx.send(()).unwrap(); //接收
+            let _ = pack.tx.send(()); //接收
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
                     if let Err(e) = panic::catch_unwind(|| {
@@ -181,61 +181,54 @@ struct MessagePack {
 
 /// 消息内容
 enum MessagePayload {
-    Invoke(MessagePayloadInvoke),
-    Panic(MessagePayloadPanic)
+    Invoke(PayloadInvoke),
+    Panic(PayloadPanic)
 }
 
 /// 消息内容-回调过程
-struct MessagePayloadInvoke {
+struct PayloadInvoke {
     param: UnsafeBox<()>,
-    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveWatch) + Send + UnwindSafe + 'static>,
-    alive: AliveWatch
+    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + UnwindSafe + 'static>,
+    alive: AliveState
 }
 
 /// 消息内容-执行异常
-struct MessagePayloadPanic {
+struct PayloadPanic {
     info: String
 }
 
 /// 消息派发器
-pub struct MessageDispatcher {
+#[derive(Clone)]
+pub struct Dispatcher {
     hwnd: HWND
 }
 
-impl MessageDispatcher {
-    /// 发起回调执行请求给UI线程
-    ///
-    /// # Safety
-    ///
-    /// 所有参数均为UI线程独占资源
+impl Dispatcher {
+    /// 派发回调请求给UI线程执行
     pub(super) async fn dispatch_invoke(
         &self,
         param: UnsafeBox<()>,
-        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveWatch) + Send + UnwindSafe + 'static>,
-        alive: AliveWatch
-    ) {
-        self.dispatch(MessagePayload::Invoke(MessagePayloadInvoke {
+        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + UnwindSafe + 'static>,
+        alive: AliveState
+    ) -> bool {
+        self.dispatch(MessagePayload::Invoke(PayloadInvoke {
             param,
             handler,
             alive
         }))
-        .await;
+        .await
     }
 
     /// 派发异常信息给UI线程
-    pub(super) async fn dispatch_panic(&self, info: String) {
-        self.dispatch(MessagePayload::Panic(MessagePayloadPanic {
+    pub(super) async fn dispatch_panic(&self, info: String) -> bool {
+        self.dispatch(MessagePayload::Panic(PayloadPanic {
             info
         }))
-        .await;
+        .await
     }
 
     /// 派发消息给UI线程
-    ///
-    /// # Safety
-    ///
-    /// 所有参数均为UI线程独占资源
-    async fn dispatch(&self, payload: MessagePayload) {
+    async fn dispatch(&self, payload: MessagePayload) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageA};
 
         //参数打包
@@ -255,24 +248,24 @@ impl MessageDispatcher {
                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
                     (payload.handler)(payload.param, payload.alive);
                 }
-                return;
+                return false;
             }
             //等待消息被接收
             loop {
                 tokio::select! {
-                    _ = &mut rx => break,
+                    _ = &mut rx => return true,
                     _ = time::sleep(time::Duration::from_millis(100)) => {
                         if IsWindow(self.hwnd) == false {
                             //需要再次检查信号，避免窗口销毁前接收了消息
                             if rx.try_recv().is_ok() {
-                                return;
+                                return true;
                             }
                             //窗口已经被销毁，需要释放内存
                             let msg_pack = msg_pack.unpack();
                             if let MessagePayload::Invoke(payload) = msg_pack.payload {
                                 (payload.handler)(payload.param, payload.alive);
                             }
-                            break;
+                            return false;
                         }
                     }
                 }

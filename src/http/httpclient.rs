@@ -1,12 +1,12 @@
 use crate::{
-    reactor::{AliveState, Handler}, retcode
+    reactor::{Handler, HandlerState}, retcode
 };
 use pbni::{pbx::*, prelude::*};
 
 struct AsyncTest {
     session: Session,
     ctx: ContextObject,
-    alive: AliveState,
+    state: HandlerState,
     inner: Option<AsyncTestInner>
 }
 
@@ -17,7 +17,7 @@ impl AsyncTest {
         AsyncTest {
             session,
             ctx,
-            alive: AliveState::new(),
+            state: HandlerState::new(),
             inner: None
         }
     }
@@ -30,22 +30,34 @@ impl AsyncTest {
 
     #[method]
     fn async_call(&mut self) -> pblong {
-        self.spawn(
+        self.spawn_with_handler(
             async { Ok(reqwest::get("http://www.baidu.com").await?.text().await?) },
             |this, param: reqwest::Result<String>| {
                 this.on_async(format!("{:?}", param)).unwrap();
             }
         )
         .cancel();
-        self.spawn(
-            async {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                "time is done".to_owned()
+
+        let dispatcher = self.dispatcher();
+        self.spawn_with_handler(
+            async move {
+                let mut cnt = 0;
+                while cnt < 10 {
+                    cnt += 1;
+                    dispatcher
+                        .dispatch_with_param(format!("tick {cnt}"), |this, param| {
+                            this.on_async(param).unwrap();
+                        })
+                        .await;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+                "tick done".to_owned()
             },
             |this, param| {
                 this.on_async(param).unwrap();
             }
         );
+
         retcode::OK
     }
 
@@ -59,7 +71,7 @@ impl AsyncTest {
 
 impl Handler for AsyncTest {
     fn session(&self) -> &Session { &self.session }
-    fn alive(&self) -> &AliveState { &self.alive }
+    fn state(&self) -> &HandlerState { &self.state }
 }
 
 #[allow(dead_code)]

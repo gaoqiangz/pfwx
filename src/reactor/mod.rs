@@ -7,7 +7,7 @@ mod context;
 mod runtime;
 mod handler;
 
-pub use handler::{AliveState, CancelHandle, Handler};
+pub use handler::{CancelHandle, Handler, HandlerState};
 
 /// 非类型安全的堆分配器
 #[repr(transparent)]
@@ -37,8 +37,10 @@ impl<T> UnsafePointer<T> {
     unsafe fn from_raw(raw: *mut T) -> Self { UnsafePointer(raw) }
     unsafe fn into_raw(self) -> *mut T { self.0 }
     unsafe fn cast<U>(self) -> UnsafePointer<U> { UnsafePointer(self.0 as *mut U) }
+    unsafe fn clone(&self) -> UnsafePointer<T> { UnsafePointer(self.0) }
     fn as_raw(&self) -> *mut T { self.0 }
 }
 
 unsafe impl<T> Send for UnsafePointer<T> {}
+unsafe impl<T> Sync for UnsafePointer<T> {}
 impl<T: UnwindSafe> UnwindSafe for UnsafePointer<T> {}
