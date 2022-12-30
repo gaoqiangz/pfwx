@@ -2,6 +2,7 @@
 
 mod retcode;
 #[cfg(feature = "reactor")]
+#[allow(dead_code)]
 mod reactor;
 
 #[cfg(feature = "parser")]

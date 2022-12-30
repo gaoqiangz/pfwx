@@ -1,4 +1,4 @@
-use super::{runtime::Runtime, AliveWatch, UnsafeBox};
+use super::{handler::AliveWatch, runtime::Runtime, UnsafeBox};
 use pbni::{pbx::Session, pbx_throw};
 use std::{
     cell::RefCell, mem, panic::{self, UnwindSafe}, rc::Rc, sync::{
@@ -13,7 +13,7 @@ use windows::{
 };
 
 thread_local! {
-    static CURRENT_CONTEXT: RefCell<Option<SyncContext>> = RefCell::new(None);
+static CURRENT_CONTEXT: RefCell<Option<SyncContext>> = RefCell::new(None);
 }
 static CONTEXT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static WINDOW_CLASS_ATOM: Mutex<u16> = Mutex::new(0);
@@ -113,7 +113,7 @@ impl SyncContext {
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
                     if let Err(e) = panic::catch_unwind(|| {
-                        (payload.handler)(payload.param, payload.alive.is_alive());
+                        (payload.handler)(payload.param, payload.alive);
                     }) {
                         let panic_info = match e.downcast_ref::<String>() {
                             Some(e) => &e,
@@ -188,7 +188,7 @@ enum MessagePayload {
 /// 消息内容-回调过程
 struct MessagePayloadInvoke {
     param: UnsafeBox<()>,
-    handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + UnwindSafe + 'static>,
+    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveWatch) + Send + UnwindSafe + 'static>,
     alive: AliveWatch
 }
 
@@ -208,19 +208,12 @@ impl MessageDispatcher {
     /// # Safety
     ///
     /// 所有参数均为UI线程独占资源
-    pub(super) async fn invoke(
+    pub(super) async fn dispatch_invoke(
         &self,
         param: UnsafeBox<()>,
-        handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + UnwindSafe + 'static>,
+        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveWatch) + Send + UnwindSafe + 'static>,
         alive: AliveWatch
     ) {
-        //检查目标对象存活
-        if alive.is_dead() {
-            //释放参数内存
-            (handler)(param, false);
-            return;
-        }
-
         self.dispatch(MessagePayload::Invoke(MessagePayloadInvoke {
             param,
             handler,
@@ -230,7 +223,7 @@ impl MessageDispatcher {
     }
 
     /// 派发异常信息给UI线程
-    pub(super) async fn panic(&self, info: String) {
+    pub(super) async fn dispatch_panic(&self, info: String) {
         self.dispatch(MessagePayload::Panic(MessagePayloadPanic {
             info
         }))
@@ -260,7 +253,7 @@ impl MessageDispatcher {
                 //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
                 let msg_pack = msg_pack.unpack();
                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                    (payload.handler)(payload.param, false);
+                    (payload.handler)(payload.param, payload.alive);
                 }
                 return;
             }
@@ -277,7 +270,7 @@ impl MessageDispatcher {
                             //窗口已经被销毁，需要释放内存
                             let msg_pack = msg_pack.unpack();
                             if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                                (payload.handler)(payload.param, false);
+                                (payload.handler)(payload.param, payload.alive);
                             }
                             break;
                         }

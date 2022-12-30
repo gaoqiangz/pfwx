@@ -1,12 +1,12 @@
 use crate::{
-    reactor::{AliveState, SyncObject}, retcode
+    reactor::{AliveState, Handler}, retcode
 };
 use pbni::{pbx::*, prelude::*};
 
 struct AsyncTest {
     session: Session,
     ctx: ContextObject,
-    alive: reactor::AliveState,
+    alive: AliveState,
     inner: Option<AsyncTestInner>
 }
 
@@ -17,7 +17,7 @@ impl AsyncTest {
         AsyncTest {
             session,
             ctx,
-            alive: reactor::AliveState::new(),
+            alive: AliveState::new(),
             inner: None
         }
     }
@@ -31,13 +31,19 @@ impl AsyncTest {
     #[method]
     fn async_call(&mut self) -> pblong {
         self.spawn(
-            async {
-                //tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                //"time is done".to_owned()
-                Ok(reqwest::get("http://www.baidu.com").await?.text().await?)
-            },
+            async { Ok(reqwest::get("http://www.baidu.com").await?.text().await?) },
             |this, param: reqwest::Result<String>| {
                 this.on_async(format!("{:?}", param)).unwrap();
+            }
+        )
+        .cancel();
+        self.spawn(
+            async {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                "time is done".to_owned()
+            },
+            |this, param| {
+                this.on_async(param).unwrap();
             }
         );
         retcode::OK
@@ -51,7 +57,7 @@ impl AsyncTest {
     fn context_mut(&mut self) -> &mut ContextObject { &mut self.ctx }
 }
 
-impl SyncObject for AsyncTest {
+impl Handler for AsyncTest {
     fn session(&self) -> &Session { &self.session }
     fn alive(&self) -> &AliveState { &self.alive }
 }

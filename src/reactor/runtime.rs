@@ -5,7 +5,7 @@ use tokio::{
 
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 
-/// 启动一个异步任务
+/// 在后台执行一个异步任务
 pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
@@ -30,7 +30,7 @@ pub struct Runtime {
 
 impl Runtime {
     /// 获取运行时消息发送通道
-    pub fn global_sender() -> mpsc::Sender<RuntimeMessage> {
+    fn global_sender() -> mpsc::Sender<RuntimeMessage> {
         let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
         if runtime.is_none() {
             *runtime = Some(Runtime::new());

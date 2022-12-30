@@ -716,9 +716,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
+checksum = "6f61fba1741ea2b3d6a1e3178721804bb716a68a6aeba1149b5d52e3d464ea66"
 
 [[package]]
 name = "openssl"
@@ -799,7 +799,7 @@ checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
 [[package]]
 name = "pbni-codegen"
 version = "0.1.0"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#19445a1cd8dfe5885636682e22237a51bbf4da91"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#3d4870e4a7426476d03f3947e3fe90d21430c08c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -809,7 +809,7 @@ dependencies = [
 [[package]]
 name = "pbni-rs"
 version = "0.1.14"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#19445a1cd8dfe5885636682e22237a51bbf4da91"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#3d4870e4a7426476d03f3947e3fe90d21430c08c"
 dependencies = [
  "cc",
  "chrono",
