@@ -4,12 +4,12 @@ use super::{
 use futures_util::FutureExt;
 use pbni::pbx::Session;
 use std::{
-    future::Future, marker::PhantomData, panic::{AssertUnwindSafe, UnwindSafe}, sync::{Arc, Mutex, Weak}
+    future::Future, marker::PhantomData, panic::AssertUnwindSafe, sync::{Arc, Mutex, Weak}
 };
 use tokio::sync::oneshot;
 
 /// 回调处理对象抽象
-pub trait Handler: Sized + UnwindSafe + 'static {
+pub trait Handler: Sized + 'static {
     /// PB会话
     fn session(&self) -> &Session;
 
@@ -95,7 +95,7 @@ pub trait Handler: Sized + UnwindSafe + 'static {
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
-        H: Fn(&mut Self, F::Output) + Send + UnwindSafe + 'static
+        H: Fn(&mut Self, F::Output) + Send + 'static
     {
         let dispatcher = self.dispatcher();
         let (cancel_hdl, mut cancel_rx) = self.state().new_cancel_handle();
@@ -180,7 +180,7 @@ impl HandlerState {
         )
     }
 
-    /// 通过取消ID删除取消通道
+    /// 通过取消ID删除取消句柄
     fn remove_cancel_id(&self, id: u64) -> bool {
         let mut inner = self.0.lock().unwrap();
         inner.remove(id)
@@ -300,7 +300,7 @@ where
     /// 成功接收请求后返回`true`否则返回`false`
     pub async fn dispatch<H>(&self, handler: H) -> bool
     where
-        H: FnOnce(&mut T) + Send + UnwindSafe + 'static
+        H: FnOnce(&mut T) + Send + 'static
     {
         if self.alive.is_dead() {
             return false;
@@ -332,7 +332,7 @@ where
     pub async fn dispatch_with_param<P, H>(&self, param: P, handler: H) -> bool
     where
         P: Send + 'static,
-        H: FnOnce(&mut T, P) + Send + UnwindSafe + 'static
+        H: FnOnce(&mut T, P) + Send + 'static
     {
         if self.alive.is_dead() {
             return false;

@@ -1,7 +1,7 @@
 use super::{handler::AliveState, runtime::Runtime, UnsafeBox};
 use pbni::{pbx::Session, pbx_throw};
 use std::{
-    cell::RefCell, mem, panic::{self, UnwindSafe}, rc::Rc, sync::{
+    cell::RefCell, mem, panic::{self, AssertUnwindSafe}, rc::Rc, sync::{
         atomic::{AtomicUsize, Ordering}, Mutex
     }
 };
@@ -112,9 +112,9 @@ impl SyncContext {
             let _ = pack.tx.send(()); //接收
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
-                    if let Err(e) = panic::catch_unwind(|| {
+                    if let Err(e) = panic::catch_unwind(AssertUnwindSafe(|| {
                         (payload.handler)(payload.param, payload.alive);
-                    }) {
+                    })) {
                         let panic_info = match e.downcast_ref::<String>() {
                             Some(e) => &e,
                             None => {
@@ -188,7 +188,7 @@ enum MessagePayload {
 /// 消息内容-回调过程
 struct PayloadInvoke {
     param: UnsafeBox<()>,
-    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + UnwindSafe + 'static>,
+    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + 'static>,
     alive: AliveState
 }
 
@@ -208,7 +208,7 @@ impl Dispatcher {
     pub(super) async fn dispatch_invoke(
         &self,
         param: UnsafeBox<()>,
-        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + UnwindSafe + 'static>,
+        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + 'static>,
         alive: AliveState
     ) -> bool {
         self.dispatch(MessagePayload::Invoke(PayloadInvoke {

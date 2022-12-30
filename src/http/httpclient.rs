@@ -2,21 +2,30 @@ use crate::{
     reactor::{Handler, HandlerState}, retcode
 };
 use pbni::{pbx::*, prelude::*};
+use std::sync::Arc;
+use tinyrand::{Rand, RandRange, StdRand};
+use tokio::sync::Mutex;
 
-struct AsyncTest {
+struct HttpClient {
     session: Session,
     ctx: ContextObject,
     state: HandlerState,
+    seq_mtx: Arc<Mutex<()>>,
+    rand: StdRand,
+    cnt: u32,
     inner: Option<AsyncTestInner>
 }
 
 #[nonvisualobject(name = "n_async_test")]
-impl AsyncTest {
+impl HttpClient {
     #[constructor]
     fn new(session: Session, ctx: ContextObject) -> Self {
-        AsyncTest {
+        HttpClient {
             session,
             ctx,
+            seq_mtx: Arc::new(Mutex::new(())),
+            rand: StdRand::default(),
+            cnt: 0,
             state: HandlerState::new(),
             inner: None
         }
@@ -30,7 +39,7 @@ impl AsyncTest {
 
     #[method]
     fn async_call(&mut self) -> pblong {
-        self.spawn_with_handler(
+        /*self.spawn_with_handler(
             async { Ok(reqwest::get("http://www.baidu.com").await?.text().await?) },
             |this, param: reqwest::Result<String>| {
                 this.on_async(format!("{:?}", param)).unwrap();
@@ -56,8 +65,22 @@ impl AsyncTest {
             |this, param| {
                 this.on_async(param).unwrap();
             }
-        );
+        );*/
+        self.cnt += 1;
+        let cnt = self.cnt;
+        let sleep = self.rand.next_range(100..1000);
+        let seq_mtx = self.seq_mtx.clone();
+        self.spawn_with_handler(
+            async move {
+                let _seq_mtx = seq_mtx.lock().await;
+                tokio::time::sleep(std::time::Duration::from_millis(sleep)).await;
 
+                format!("{cnt}")
+            },
+            |this, param| {
+                this.on_async(param).unwrap();
+            }
+        );
         retcode::OK
     }
 
@@ -65,11 +88,11 @@ impl AsyncTest {
     fn on_async(&mut self, param: String) -> Result<()> {}
 }
 
-impl AsyncTest {
+impl HttpClient {
     fn context_mut(&mut self) -> &mut ContextObject { &mut self.ctx }
 }
 
-impl Handler for AsyncTest {
+impl Handler for HttpClient {
     fn session(&self) -> &Session { &self.session }
     fn state(&self) -> &HandlerState { &self.state }
 }
