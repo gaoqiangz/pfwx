@@ -1,45 +1,71 @@
 #![allow(dead_code)]
+#![allow(non_camel_case_types)]
 
-use pbni::primitive::pblong;
+use std::ops::FromResidual;
 
-pub const OK: pblong = 0;
-pub const SUCCESS: pblong = 0;
-pub const ALLOW: pblong = 0;
-pub const PREVENT: pblong = 1;
-pub const FAILED: pblong = -1;
-pub const CANCELED: pblong = -2;
-pub const CANCELLED: pblong = -2;
-pub const E_INVALID_ARGUMENT: pblong = -3;
-pub const E_INVALID_IMAGE: pblong = -4;
-pub const E_INVALID_OBJECT: pblong = -5;
-pub const E_INVALID_TYPE: pblong = -6;
-pub const E_INVALID_TRANSACTION: pblong = -7;
-pub const E_INVALID_SQL: pblong = -8;
-pub const E_INVALID_DATA: pblong = -9;
-pub const E_INVALID_DATAOBJECT: pblong = -10;
-pub const E_INVALID_HANDLE: pblong = -11;
-pub const E_OUT_OF_BOUND: pblong = -12;
-pub const E_OUT_OF_RANGE: pblong = -13;
-pub const E_OUT_OF_MEMORY: pblong = -14;
-pub const E_FILE_NOT_FOUND: pblong = -15;
-pub const E_OBJECT_NOT_FOUND: pblong = -16;
-pub const E_DATA_NOT_FOUND: pblong = -17;
-pub const E_FUNCTION_NOT_FOUND: pblong = -18;
-pub const E_EVENT_NOT_FOUND: pblong = -19;
-pub const E_MEMBER_NOT_FOUND: pblong = -20;
-pub const E_VAR_NOT_FOUND: pblong = -21;
-pub const E_NOT_EXISTS: pblong = -22;
-pub const E_BUSY: pblong = -23;
-pub const E_TIME_OUT: pblong = -24;
-pub const E_ACCESS_DENIED: pblong = -25;
-pub const E_WIN32_ERROR: pblong = -26;
-pub const E_INTERNAL_ERROR: pblong = -27;
-pub const E_DB_ERROR: pblong = -28;
-pub const E_HTTP_ERROR: pblong = -29;
-pub const E_WINHTTP_ERROR: pblong = -30;
-pub const E_IO_ERROR: pblong = -31;
-pub const E_SQL_BIND_ARG_FAILED: pblong = -32;
-pub const E_RETRY: pblong = -33;
-pub const E_NO_SUPPORT: pblong = -2000;
-pub const E_NO_IMPLEMENTATION: pblong = -2001;
-pub const UNKNOWN: pblong = -4000;
+use pbni::pbx::{Result as PBXResult, ToValue, Value};
+
+pub enum RetCode {
+    OK = 0,
+    PREVENT = 1,
+    FAILED = -1,
+    CANCELLED = -2,
+    E_INVALID_ARGUMENT = -3,
+    E_INVALID_IMAGE = -4,
+    E_INVALID_OBJECT = -5,
+    E_INVALID_TYPE = -6,
+    E_INVALID_TRANSACTION = -7,
+    E_INVALID_SQL = -8,
+    E_INVALID_DATA = -9,
+    E_INVALID_DATAOBJECT = -10,
+    E_INVALID_HANDLE = -11,
+    E_OUT_OF_BOUND = -12,
+    E_OUT_OF_RANGE = -13,
+    E_OUT_OF_MEMORY = -14,
+    E_FILE_NOT_FOUND = -15,
+    E_OBJECT_NOT_FOUND = -16,
+    E_DATA_NOT_FOUND = -17,
+    E_FUNCTION_NOT_FOUND = -18,
+    E_EVENT_NOT_FOUND = -19,
+    E_MEMBER_NOT_FOUND = -20,
+    E_VAR_NOT_FOUND = -21,
+    E_NOT_EXISTS = -22,
+    E_BUSY = -23,
+    E_TIME_OUT = -24,
+    E_ACCESS_DENIED = -25,
+    E_WIN32_ERROR = -26,
+    E_INTERNAL_ERROR = -27,
+    E_DB_ERROR = -28,
+    E_HTTP_ERROR = -29,
+    E_WINHTTP_ERROR = -30,
+    E_IO_ERROR = -31,
+    E_SQL_BIND_ARG_FAILED = -32,
+    E_RETRY = -33,
+    E_NO_SUPPORT = -2000,
+    E_NO_IMPLEMENTATION = -2001,
+    UNKNOWN = -4000
+}
+
+impl ToValue for RetCode {
+    fn to_value(self, val: &mut Value) -> PBXResult<()> { val.try_set_long(self as _) }
+}
+
+impl<T, E> FromResidual<Result<T, E>> for RetCode {
+    fn from_residual(residual: Result<T, E>) -> Self {
+        if residual.is_ok() {
+            RetCode::OK
+        } else {
+            RetCode::FAILED
+        }
+    }
+}
+
+impl<T, E> From<Result<T, E>> for RetCode {
+    fn from(res: Result<T, E>) -> Self {
+        if res.is_ok() {
+            RetCode::OK
+        } else {
+            RetCode::FAILED
+        }
+    }
+}

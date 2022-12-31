@@ -34,7 +34,7 @@ pub trait Handler: Sized + 'static {
     ///
     /// - 通过`CancelHandle`手动取消
     /// - 此对象销毁时自动取消
-    fn spawn<F, H>(&mut self, fut: F, handler: H) -> CancelHandle
+    fn spawn<F, H>(&self, fut: F, handler: H) -> CancelHandle
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -110,7 +110,7 @@ pub trait Handler: Sized + 'static {
     /// # Returns
     ///
     /// `fut` 任务的执行结果
-    fn spawn_blocking<F, R>(&mut self, fut: F) -> Result<R, SpawnBlockingError>
+    fn spawn_blocking<F, R>(&self, fut: F) -> Result<R, SpawnBlockingError>
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static
@@ -311,7 +311,7 @@ where
                 }
             })
         };
-        let param = unsafe { UnsafeBox::pack(param).cast::<()>() };
+        let param = UnsafeBox::pack(param).cast::<()>();
         if !self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await {
             return Err(InvokeError::TargetIsDead);
         }

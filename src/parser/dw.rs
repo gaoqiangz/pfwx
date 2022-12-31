@@ -17,20 +17,17 @@ impl DWParser {
     ///
     /// 支持`.srd`文件格式
     #[method]
-    fn parse(&mut self, syn: String) -> pblong {
+    fn parse(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
             //SAFETY
             transmute(syn.as_str())
         };
-        let ast = match DWSyntax::parse(syn_ref) {
-            Ok(ast) => ast,
-            Err(_) => return retcode::E_INVALID_ARGUMENT
-        };
+        let ast = DWSyntax::parse(syn_ref)?;
         self.inner = Some(DWParserInner {
             syn,
             ast
         });
-        retcode::OK
+        RetCode::OK
     }
 
     /// 获取指定语法项的参数值
@@ -59,20 +56,17 @@ impl DWParser {
 
     /// 反序列化`JSON-AST`字符串
     #[method]
-    fn from_json_ast(&mut self, syn: String) -> pblong {
+    fn from_json_ast(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
             //SAFETY
             transmute(syn.as_str())
         };
-        let ast = match serde_json::from_str::<DWSyntax>(syn_ref) {
-            Ok(ast) => ast,
-            Err(_) => return retcode::E_INVALID_ARGUMENT
-        };
+        let ast = serde_json::from_str::<DWSyntax>(syn_ref)?;
         self.inner = Some(DWParserInner {
             syn,
             ast
         });
-        retcode::OK
+        RetCode::OK
     }
 
     /// 序列化为`JSON-AST`字符串

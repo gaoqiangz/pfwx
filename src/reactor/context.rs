@@ -239,12 +239,10 @@ impl Dispatcher {
 
         //参数打包
         let (tx, mut rx) = oneshot::channel();
-        let msg_pack = unsafe {
-            UnsafeBox::pack(MessagePack {
-                payload,
-                tx
-            })
-        };
+        let msg_pack = UnsafeBox::pack(MessagePack {
+            payload,
+            tx
+        });
 
         unsafe {
             //派发消息

@@ -1,6 +1,7 @@
+#![feature(try_trait_v2)]
+
 mod retcode;
 #[cfg(feature = "reactor")]
-#[allow(dead_code)]
 mod reactor;
 #[cfg(feature = "parser")]
 mod parser;
@@ -8,5 +9,5 @@ mod parser;
 mod http;
 
 mod prelude {
-    pub(crate) use super::{reactor, retcode};
+    pub(crate) use super::{reactor, retcode::RetCode};
 }
