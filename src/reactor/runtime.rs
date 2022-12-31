@@ -11,7 +11,7 @@ where
     F: Future<Output = ()> + Send + 'static
 {
     let runtime_tx = Runtime::global_sender();
-    if let Err(e) = runtime_tx.blocking_send(RuntimeMessage::Task(Box::pin(fut))) {
+    if let Err(e) = runtime_tx.send(RuntimeMessage::Task(Box::pin(fut))) {
         panic!("send message to background failed: {e}");
     }
 }
@@ -24,13 +24,13 @@ enum RuntimeMessage {
 
 /// 运行时
 pub struct Runtime {
-    msg_tx: mpsc::Sender<RuntimeMessage>,
+    msg_tx: mpsc::UnboundedSender<RuntimeMessage>,
     stop_rx: Option<oneshot::Receiver<()>>
 }
 
 impl Runtime {
     /// 获取运行时消息发送通道
-    fn global_sender() -> mpsc::Sender<RuntimeMessage> {
+    fn global_sender() -> mpsc::UnboundedSender<RuntimeMessage> {
         let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
         if runtime.is_none() {
             *runtime = Some(Runtime::new());
@@ -50,7 +50,7 @@ impl Runtime {
         //退出信号
         let (stop_tx, stop_rx) = oneshot::channel();
         //消息通道
-        let (msg_tx, mut msg_rx) = mpsc::channel(256);
+        let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
 
         //创建后台线程
         thread::Builder::new()
@@ -86,7 +86,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        let _ = self.msg_tx.blocking_send(RuntimeMessage::Stop);
+        let _ = self.msg_tx.send(RuntimeMessage::Stop);
         //NOTE 不能直接WAIT线程对象，因为此时处于TLS销毁流程中，OS加了保护锁防止同时销毁
         self.stop_rx.take().unwrap().blocking_recv().unwrap();
         //FIXME

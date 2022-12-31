@@ -231,6 +231,12 @@ impl Dispatcher {
     async fn dispatch(&self, payload: MessagePayload) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageA};
 
+        let alive = if let MessagePayload::Invoke(payload) = &payload {
+            Some(payload.alive.clone())
+        } else {
+            None
+        };
+
         //参数打包
         let (tx, mut rx) = oneshot::channel();
         let msg_pack = unsafe {
@@ -255,8 +261,8 @@ impl Dispatcher {
                 tokio::select! {
                     _ = &mut rx => return true,
                     _ = time::sleep(time::Duration::from_millis(100)) => {
-                        if IsWindow(self.hwnd) == false {
-                            //需要再次检查信号，避免窗口销毁前接收了消息
+                        if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false {
+                            //需要再次检查信号，避免目标销毁前接收了消息
                             if rx.try_recv().is_ok() {
                                 return true;
                             }
