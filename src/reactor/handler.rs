@@ -101,7 +101,11 @@ pub trait Handler: Sized + 'static {
     ///
     /// # Parameters
     ///
-    /// - `fut` 异步任务 (NOTE: 内部请求UI回调将会发生**死锁(deadlock)**)
+    /// - `fut` 异步任务
+    ///
+    /// # Deadlock
+    ///
+    /// 在`fut`内部请求UI回调将会发生死锁
     ///
     /// # Returns
     ///
