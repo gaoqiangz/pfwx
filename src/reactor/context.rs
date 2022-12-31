@@ -94,7 +94,7 @@ impl SyncContext {
                 pbsession
             });
             //绑定上下文
-            SetWindowLongPtrA(hwnd, GWL_USERDATA, inner.as_ref() as *const SyncContextInner as i32);
+            SetWindowLongPtrA(hwnd, GWL_USERDATA, inner.as_ref() as *const SyncContextInner as _);
 
             SyncContext {
                 inner

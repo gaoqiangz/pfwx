@@ -17,66 +17,9 @@ pub trait Handler: Sized + 'static {
     fn state(&self) -> &HandlerState;
 
     /// 对象回调派发器
-    fn dispatcher(&self) -> HandlerDispatcher<Self> { HandlerDispatcher::bind(self) }
+    fn invoker(&self) -> HandlerInvoker<Self> { HandlerInvoker::bind(self) }
 
     /// 启动一个异步任务
-    ///
-    /// # Parameters
-    ///
-    /// - `fut` 异步任务
-    ///
-    /// # Returns
-    ///
-    /// `CancelHandle` 任务取消句柄
-    ///
-    /// # Cancellation
-    ///
-    /// - 通过`CancelHandle`手动取消
-    /// - 此对象销毁时自动取消
-    fn spawn<F>(&mut self, fut: F) -> CancelHandle
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static
-    {
-        let dispatcher = self.dispatcher();
-        let (cancel_hdl, mut cancel_rx) = self.state().new_cancel_handle();
-
-        //封装异步任务
-        let fut = async move {
-            tokio::pin! {
-            let fut = AssertUnwindSafe(fut).catch_unwind();
-            }
-            loop {
-                tokio::select! {
-                    rv = &mut fut => {
-                        if let Err(e) = rv {
-                            let panic_info = match e.downcast_ref::<String>() {
-                                Some(e) => &e,
-                                None => {
-                                    match e.downcast_ref::<&'static str>() {
-                                        Some(e) => e,
-                                        None => "unknown"
-                                    }
-                                },
-                            };
-                            dispatcher
-                                .dispatch_panic(panic_info)
-                                .await;
-                        }
-                        break;
-                    },
-                    _ = &mut cancel_rx => break,
-                }
-            }
-        };
-
-        //执行
-        runtime::spawn(fut);
-
-        cancel_hdl
-    }
-
-    /// 启动一个异步任务并接收执行结果
     ///
     /// # Parameters
     ///
@@ -91,13 +34,13 @@ pub trait Handler: Sized + 'static {
     ///
     /// - 通过`CancelHandle`手动取消
     /// - 此对象销毁时自动取消
-    fn spawn_with_handler<F, H>(&mut self, fut: F, handler: H) -> CancelHandle
+    fn spawn<F, H>(&mut self, fut: F, handler: H) -> CancelHandle
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
         H: Fn(&mut Self, F::Output) + Send + 'static
     {
-        let dispatcher = self.dispatcher();
+        let invoker = self.invoker();
         let (cancel_hdl, mut cancel_rx) = self.state().new_cancel_handle();
         let handler = {
             let cancel_id = cancel_hdl.id();
@@ -124,7 +67,7 @@ pub trait Handler: Sized + 'static {
                                 if cancel_rx.try_recv().is_ok() {
                                     break;
                                 }
-                                dispatcher.dispatch_with_param(rv, handler).await;
+                                let _ = invoker.invoke(rv, handler).await;
                             },
                             Err(e) => {
                                 let panic_info = match e.downcast_ref::<String>() {
@@ -136,8 +79,8 @@ pub trait Handler: Sized + 'static {
                                         }
                                     },
                                 };
-                                dispatcher
-                                    .dispatch_panic(panic_info)
+                                invoker
+                                    .panic(panic_info)
                                     .await;
                             }
                         }
@@ -158,15 +101,11 @@ pub trait Handler: Sized + 'static {
     ///
     /// # Parameters
     ///
-    /// - `fut` 异步任务
+    /// - `fut` 异步任务 (NOTE: 内部请求UI回调将会发生**死锁(deadlock)**)
     ///
     /// # Returns
     ///
     /// `fut` 任务的执行结果
-    ///
-    /// # Notice
-    ///
-    /// 在`fut`中请求UI回调，将会发生**死锁(deadlock)**
     fn spawn_blocking<F, R>(&mut self, fut: F) -> Result<R, SpawnBlockingError>
     where
         F: Future<Output = R> + Send + 'static,
@@ -198,6 +137,7 @@ pub trait Handler: Sized + 'static {
     }
 }
 
+/// 阻塞任务错误
 #[derive(Debug)]
 pub enum SpawnBlockingError {
     Panic(String)
@@ -317,20 +257,20 @@ impl CancelHandle {
 }
 
 /// 对象回调派发器
-pub struct HandlerDispatcher<T> {
+pub struct HandlerInvoker<T> {
     dsp: Dispatcher,
     this: UnsafePointer<T>,
     alive: AliveState
 }
 
-impl<T> HandlerDispatcher<T>
+impl<T> HandlerInvoker<T>
 where
     T: Handler
 {
     /// 创建派发器并绑定对象
     fn bind(this: &T) -> Self {
         let sync_ctx = SyncContext::current(this.session());
-        HandlerDispatcher {
+        HandlerInvoker {
             dsp: sync_ctx.dispatcher(),
             this: unsafe { UnsafePointer::from_raw(this as *const T as *mut T) },
             alive: this.state().alive()
@@ -341,78 +281,63 @@ where
     ///
     /// # Parameters
     ///
-    /// - `handler` 回调过程在UI线程中执行
-    ///
-    /// # Returns
-    ///
-    /// 成功接收请求后返回`true`否则返回`false`
-    pub async fn dispatch<H>(&self, handler: H) -> bool
-    where
-        H: FnOnce(&mut T) + Send + 'static
-    {
-        if self.alive.is_dead() {
-            return false;
-        }
-        let handler = unsafe {
-            let this = self.this.clone();
-            Box::new(move |param: UnsafeBox<()>, alive: AliveState| {
-                param.unpack();
-                if alive.is_alive() {
-                    let this = &mut *this.into_raw();
-                    handler(this);
-                }
-            })
-        };
-        let param = unsafe { UnsafeBox::pack(()) };
-        self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await
-    }
-
-    /// 发起附带参数的回调请求给UI线程执行
-    ///
-    /// # Parameters
-    ///
     /// - `param` 参数
     /// - `handler` 接收`param`参数的回调过程并在UI线程中执行
     ///
     /// # Returns
     ///
-    /// 成功接收请求后返回`true`否则返回`false`
-    pub async fn dispatch_with_param<P, H>(&self, param: P, handler: H) -> bool
+    /// 成功返回`handler`返回值
+    pub async fn invoke<P, H, R>(&self, param: P, handler: H) -> Result<R, InvokeError>
     where
         P: Send + 'static,
-        H: FnOnce(&mut T, P) + Send + 'static
+        H: FnOnce(&mut T, P) -> R + Send + 'static,
+        R: Send + 'static
     {
         if self.alive.is_dead() {
-            return false;
+            return Err(InvokeError::TargetIsDead);
         }
+        let (tx, rx) = oneshot::channel();
         let handler = unsafe {
             let this = self.this.clone();
             Box::new(move |param: UnsafeBox<()>, alive: AliveState| {
                 let param = param.cast::<P>().unpack();
                 if alive.is_alive() {
                     let this = &mut *this.into_raw();
-                    handler(this, param);
+                    assert!(tx.send(handler(this, param)).is_ok());
                 }
             })
         };
         let param = unsafe { UnsafeBox::pack(param).cast::<()>() };
-        self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await
+        if !self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await {
+            return Err(InvokeError::TargetIsDead);
+        }
+        match rx.await {
+            Ok(rv) => Ok(rv),
+            Err(_) => Err(InvokeError::Panic)
+        }
     }
 
     /// 派发执行异常信息给UI线程
-    async fn dispatch_panic(&self, panic_info: &str) -> bool {
+    async fn panic(&self, panic_info: &str) -> bool {
         self.dsp
             .dispatch_panic(format!("{}\r\nbacktrace:\r\n{:?}", panic_info, backtrace::Backtrace::new()))
             .await
     }
 }
 
-impl<T> Clone for HandlerDispatcher<T> {
+impl<T> Clone for HandlerInvoker<T> {
     fn clone(&self) -> Self {
-        HandlerDispatcher {
+        HandlerInvoker {
             dsp: self.dsp.clone(),
             this: unsafe { self.this.clone() },
             alive: self.alive.clone()
         }
     }
+}
+
+/// UI线程调用错误
+#[derive(Debug)]
+pub enum InvokeError {
+    TargetIsDead,
+    Panic
 }
