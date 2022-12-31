@@ -153,6 +153,54 @@ pub trait Handler: Sized + 'static {
 
         cancel_hdl
     }
+
+    /// 启动一个异步任务并阻塞执行
+    ///
+    /// # Parameters
+    ///
+    /// - `fut` 异步任务
+    ///
+    /// # Returns
+    ///
+    /// `fut` 任务的执行结果
+    ///
+    /// # Notice
+    ///
+    /// 在`fut`中请求UI回调，将会发生**死锁(deadlock)**
+    fn spawn_blocking<F, R>(&mut self, fut: F) -> Result<R, SpawnBlockingError>
+    where
+        F: Future<Output = R> + Send + 'static,
+        R: Send + 'static
+    {
+        let (tx, rx) = oneshot::channel();
+        //封装异步任务
+        let fut = async move {
+            match AssertUnwindSafe(fut).catch_unwind().await {
+                Ok(rv) => assert!(tx.send(Ok(rv)).is_ok()),
+                Err(e) => {
+                    let panic_info = match e.downcast_ref::<String>() {
+                        Some(e) => &e,
+                        None => {
+                            match e.downcast_ref::<&'static str>() {
+                                Some(e) => e,
+                                None => "unknown"
+                            }
+                        },
+                    };
+                    assert!(tx.send(Err(SpawnBlockingError::Panic(panic_info.to_owned()))).is_ok());
+                }
+            }
+        };
+        //执行
+        runtime::spawn(fut);
+        //阻塞等待执行结果
+        rx.blocking_recv().unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub enum SpawnBlockingError {
+    Panic(String)
 }
 
 /// 对象状态
