@@ -31,20 +31,6 @@ impl Win32Event {
 unsafe impl Sync for Win32Event {}
 unsafe impl Send for Win32Event {}
 
-/// 事件等待状态
-struct Waiting {
-    wait_object: HANDLE,
-    tx: *mut Option<oneshot::Sender<()>>,
-    rx: oneshot::Receiver<()>
-}
-
-impl Waiting {
-    unsafe extern "system" fn callback(ptr: *mut c_void, _timer_fired: BOOLEAN) {
-        let tx = &mut *(ptr as *mut Option<oneshot::Sender<()>>);
-        tx.take().unwrap().send(()).unwrap();
-    }
-}
-
 impl Future for Win32Event {
     type Output = Result<(), WinError>;
 
@@ -86,6 +72,20 @@ impl Future for Win32Event {
                 tx
             });
         }
+    }
+}
+
+/// 事件等待状态
+struct Waiting {
+    wait_object: HANDLE,
+    tx: *mut Option<oneshot::Sender<()>>,
+    rx: oneshot::Receiver<()>
+}
+
+impl Waiting {
+    unsafe extern "system" fn callback(ptr: *mut c_void, _timer_fired: BOOLEAN) {
+        let tx = &mut *(ptr as *mut Option<oneshot::Sender<()>>);
+        tx.take().unwrap().send(()).unwrap();
     }
 }
 
