@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
-use std::ops::FromResidual;
-
 use pbni::pbx::{Result as PBXResult, ToValue, Value};
+use std::{convert::Infallible, ops::FromResidual};
 
 pub enum RetCode {
     OK = 0,
@@ -50,12 +49,11 @@ impl ToValue for RetCode {
     fn to_value(self, val: &mut Value) -> PBXResult<()> { val.try_set_long(self as _) }
 }
 
-impl<T, E> FromResidual<Result<T, E>> for RetCode {
-    fn from_residual(residual: Result<T, E>) -> Self {
-        if residual.is_ok() {
-            RetCode::OK
-        } else {
-            RetCode::FAILED
+impl<E> FromResidual<Result<Infallible, E>> for RetCode {
+    fn from_residual(residual: Result<Infallible, E>) -> Self {
+        match residual {
+            Ok(_) => unreachable!(),
+            Err(_) => RetCode::FAILED
         }
     }
 }
