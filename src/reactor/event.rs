@@ -12,17 +12,19 @@ use windows::{
     }
 };
 
+pub use windows::Win32::Foundation::HANDLE as HEVENT;
+
 /// Win32事件句柄
 pub struct Win32Event {
-    handle: HANDLE,
+    handle: HEVENT,
     waiting: Option<Waiting>
 }
 
 impl Win32Event {
-    /// 从`Win32 HANDLE`创建
-    pub fn from_raw(handle: isize) -> Self {
+    /// 从`HANDLE`创建
+    pub fn from_raw(handle: HEVENT) -> Self {
         Win32Event {
-            handle: HANDLE(handle),
+            handle,
             waiting: None
         }
     }

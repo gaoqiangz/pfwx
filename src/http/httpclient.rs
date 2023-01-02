@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use futures_util::future::{self, Either};
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, ClientBuilder};
@@ -58,23 +57,20 @@ impl HttpClient {
     fn get_with_event(&self, url: String, hevent: pbulong) -> String {
         let client = self.client.clone();
         self.spawn_blocking(async move {
-            tokio::pin! {
-            let get = async move {
-                match client.get(url).send().await {
-                    Ok(resp) => resp.text().await.unwrap_or_default(),
-                    Err(e) => e.to_string()
-                }
-            };
-            let cancel_evt = Win32Event::from_raw(hevent as _);
-            }
-            match future::select(get, cancel_evt).await {
-                Either::Left((rv, _)) => rv,
-                Either::Right((rv, _)) => {
-                    match rv {
-                        Ok(_) => "[cancelled]".to_string(),
-                        Err(e) => panic!("wait cancel failed: {e}")
+            if let Some(rv) = futures::cancel_by_event(
+                async move {
+                    match client.get(url).send().await {
+                        Ok(resp) => resp.text().await.unwrap_or_default(),
+                        Err(e) => e.to_string()
                     }
                 },
+                hevent
+            )
+            .await
+            {
+                rv
+            } else {
+                "[cancelled]".to_string()
             }
         })
         .unwrap()

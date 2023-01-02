@@ -6,8 +6,8 @@ mod context;
 mod runtime;
 mod handler;
 mod event;
+pub mod futures;
 
-pub use event::Win32Event;
 pub use handler::{CancelHandle, Handler, HandlerState};
 
 /// 非类型安全的堆分配器
