@@ -47,6 +47,13 @@ impl HttpClient {
 
     fn context_mut(&mut self) -> &mut ContextObject { &mut self.ctx }
 
+    fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle) {
+        let mut pending = self.pending.lock().unwrap();
+        if let Some(hdl) = pending.insert(id, cancel_hdl) {
+            hdl.cancel();
+        }
+    }
+
     #[method]
     fn reconfig(&mut self, cfg: &mut HttpClientConfig) -> RetCode {
         let (client, rt_cfg) = cfg.build()?;
@@ -56,17 +63,56 @@ impl HttpClient {
     }
 
     #[method]
+    fn get(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.get(url));
+        })
+    }
+
+    #[method]
+    fn post(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.post(url));
+        })
+    }
+
+    #[method]
+    fn put(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.put(url));
+        })
+    }
+
+    #[method]
+    fn patch(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.patch(url));
+        })
+    }
+
+    #[method]
+    fn delete(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.delete(url));
+        })
+    }
+
+    #[method]
+    fn head(&self, url: String) -> Result<Object> {
+        HttpRequest::new_object_modify(&self.session, |obj| {
+            obj.init(self.clone(), self.client.head(url));
+        })
+    }
+
+    #[method]
     fn request(&self, method: String, url: String) -> Result<Object> {
         let method = match Method::from_str(&method) {
             Ok(method) => method,
             Err(_) => return Err(PBXRESULT::E_INVALID_ARGUMENT)
         };
-        let mut obj = self.session.new_user_object(HttpRequest::CLASS_NAME)?;
-        {
-            let obj = unsafe { obj.get_native_mut::<HttpRequest>()? };
+        HttpRequest::new_object_modify(&self.session, |obj| {
             obj.init(self.clone(), self.client.request(method, url));
-        }
-        Ok(obj)
+        })
     }
 
     #[method]
@@ -77,14 +123,10 @@ impl HttpClient {
         }
     }
 
-    fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle) {
-        let mut pending = self.pending.lock().unwrap();
-        if let Some(hdl) = pending.insert(id, cancel_hdl) {
-            hdl.cancel();
-        }
-    }
-
-    fn on_complete(&mut self, (id, resp): (pbulong, String)) {}
+    #[event(name = "OnReceive")]
+    fn on_recv(&mut self, id: pbulong, total: pbulong, received: pbulong, speed: pbulong) {}
+    #[event(name = "OnComplete")]
+    fn on_complete(&mut self, id: pbulong, resp: Object) {}
 }
 
 impl Handler for HttpClient {

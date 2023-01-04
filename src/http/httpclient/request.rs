@@ -1,8 +1,14 @@
-use super::*;
-use reqwest::{header, RequestBuilder};
+use super::{
+    response::{HttpResponse, HttpResponseKind}, *
+};
+use futures_util::StreamExt;
+use reqwest::{
+    header::{HeaderName, HeaderValue}, RequestBuilder
+};
 use std::time::Duration;
 
 pub struct HttpRequest {
+    session: Session,
     ctx: ContextObject,
     inner: Option<HttpRequestInner>
 }
@@ -10,8 +16,9 @@ pub struct HttpRequest {
 #[nonvisualobject(name = "nx_httprequest")]
 impl HttpRequest {
     #[constructor]
-    fn new(_session: Session, ctx: ContextObject) -> Self {
+    fn new(session: Session, ctx: ContextObject) -> Self {
         HttpRequest {
+            session,
             ctx,
             inner: None
         }
@@ -29,8 +36,8 @@ impl HttpRequest {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.header(
-                header::HeaderName::from_str(&key).expect("invalid header key"),
-                header::HeaderValue::from_str(&val).expect("invalid header value")
+                HeaderName::from_str(&key).expect("invalid header key"),
+                HeaderValue::from_str(&val).expect("invalid header value")
             ));
             &self.ctx
         } else {
@@ -90,39 +97,40 @@ impl HttpRequest {
     }
 
     #[method(overload = 1)]
-    fn send(&mut self, hevent: Option<pbulong>) -> String {
+    fn send(&mut self, hevent: Option<pbulong>) -> Result<Object> {
         if let Some(HttpRequestInner {
             client,
             builder
         }) = self.inner.take()
         {
             let sending = builder.unwrap().send();
-            client
+            let resp = client
                 .spawn_blocking(async move {
-                    if let Some(hevent) = hevent {
-                        if let Some(rv) = futures::cancel_by_event(
-                            async move {
-                                match sending.await {
-                                    Ok(resp) => resp.text().await.unwrap_or_default(),
-                                    Err(e) => e.to_string()
+                    let fut = async move {
+                        match sending.await {
+                            Ok(resp) => {
+                                let status = resp.status();
+                                let headers = resp.headers().clone();
+                                match resp.bytes().await {
+                                    Ok(data) => HttpResponseKind::received(status, headers, data),
+                                    Err(e) => HttpResponseKind::receive_error(status, headers, e.to_string())
                                 }
                             },
-                            hevent
-                        )
-                        .await
-                        {
+                            Err(e) => HttpResponseKind::send_error(e.to_string())
+                        }
+                    };
+                    if let Some(hevent) = hevent {
+                        if let Some(rv) = futures::cancel_by_event(fut, hevent).await {
                             rv
                         } else {
-                            "[cancelled]".to_string()
+                            HttpResponseKind::cancelled()
                         }
                     } else {
-                        match sending.await {
-                            Ok(resp) => resp.text().await.unwrap_or_default(),
-                            Err(e) => e.to_string()
-                        }
+                        fut.await
                     }
                 })
-                .unwrap()
+                .unwrap();
+            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp))
         } else {
             panic!("invalid object");
         }
@@ -141,8 +149,9 @@ impl HttpRequest {
             } else {
                 None
             };
+            let invoker = client.invoker();
             let sending = builder.unwrap().send();
-            let cancel_hdl = client.spawn(
+            /*let cancel_hdl = client.spawn(
                 async move {
                     let _lock = if let Some(lock) = lock.as_ref() {
                         Some(lock.lock().await)
@@ -150,14 +159,38 @@ impl HttpRequest {
                         None
                     };
                     let rv = match sending.await {
-                        Ok(resp) => resp.text().await.unwrap_or_default(),
+                        Ok(resp) => {
+                            let total_size = resp.content_length().unwrap_or_default() as _;
+                            let mut recv_size = 0;
+                            let mut stream = resp.bytes_stream();
+                            while let Some(data) = stream.next().await {
+                                let data = data.unwrap();
+                                recv_size += data.len();
+                                if invoker
+                                    .invoke(
+                                        (id, total_size, recv_size),
+                                        |this, (id, total_size, recv_size)| {
+                                            this.on_recv(id, total_size, received, speed);
+                                        }
+                                    )
+                                    .await
+                                    .is_err()
+                                {
+                                    bail!("操作被取消");
+                                }
+                            }
+                            resp.text().await.unwrap_or_default()
+                        },
                         Err(e) => e.to_string()
                     };
                     (id, rv)
                 },
-                HttpClient::on_complete
+                |this, (id, rv)| {
+                    this.on_complete(id, rv);
+                }
             );
             client.push_pending(id, cancel_hdl);
+            */
         } else {
             panic!("invalid object");
         }

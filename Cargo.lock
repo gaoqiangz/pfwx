@@ -1065,7 +1065,7 @@ checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
 [[package]]
 name = "pbni-codegen"
 version = "0.1.0"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#9f3d1b915f9bc2c16b1c4479dfa16bc754360a89"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#b5c0b29c9fe0546d279b7b51680b7b030d244736"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1075,7 +1075,7 @@ dependencies = [
 [[package]]
 name = "pbni-rs"
 version = "0.1.14"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#9f3d1b915f9bc2c16b1c4479dfa16bc754360a89"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#b5c0b29c9fe0546d279b7b51680b7b030d244736"
 dependencies = [
  "cc",
  "chrono",
@@ -1100,6 +1100,7 @@ name = "pfwx"
 version = "0.1.0"
 dependencies = [
  "backtrace",
+ "bytes",
  "dwparser",
  "futures-util",
  "pbni-rs",

@@ -1,11 +1,15 @@
 use super::*;
-use reqwest::{header, Certificate, ClientBuilder, Identity, Proxy};
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue}, Certificate, ClientBuilder, Identity, Proxy
+};
 use std::time::Duration;
 
 #[derive(Default)]
 pub struct HttpClientRuntimeConfig {
-    /// 异步请求保证按调用顺序执行
-    pub guarantee_order: bool
+    /// 异步请求-保证按调用顺序执行
+    pub guarantee_order: bool,
+    /// 异步请求-进度回调`OnReceive`
+    pub progress: bool
 }
 
 pub struct HttpClientConfig {
@@ -47,10 +51,10 @@ impl HttpClientConfig {
 
     #[method]
     fn default_header(&mut self, key: String, val: String) -> &ContextObject {
-        let mut headers = header::HeaderMap::new();
+        let mut headers = HeaderMap::new();
         headers.insert(
-            header::HeaderName::from_str(&key).expect("invalid header key"),
-            header::HeaderValue::from_str(&val).expect("invalid header value")
+            HeaderName::from_str(&key).expect("invalid header key"),
+            HeaderValue::from_str(&val).expect("invalid header value")
         );
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.default_headers(headers));
@@ -156,6 +160,14 @@ impl HttpClientConfig {
     fn guarantee_order(&mut self, enabled: bool) -> &ContextObject {
         let mut rt_cfg = self.rt_cfg.take().unwrap();
         rt_cfg.guarantee_order = enabled;
+        self.rt_cfg.replace(rt_cfg);
+        &self.ctx
+    }
+
+    #[method]
+    fn progress(&mut self, enabled: bool) -> &ContextObject {
+        let mut rt_cfg = self.rt_cfg.take().unwrap();
+        rt_cfg.progress = enabled;
         self.rt_cfg.replace(rt_cfg);
         &self.ctx
     }
