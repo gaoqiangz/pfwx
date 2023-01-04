@@ -148,7 +148,7 @@ pub enum SpawnBlockingError {
 }
 
 /// 对象状态
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HandlerState(Arc<Mutex<CancelManager>>);
 
 impl HandlerState {

@@ -21,7 +21,7 @@ windows = { version = "0.43.0", features = ["Win32_Foundation", "Win32_UI_Window
 backtrace = { version = "0.3.67", optional = true }
 
 # http
-reqwest = { version = "0.11.13", features = ["multipart"], optional = true }
+reqwest = { version = "0.11.13", features = ["native-tls-vendored", "trust-dns", "multipart", "stream", "cookies", "socks", "gzip", "brotli", "deflate"], optional = true }
 
 # parser
 dwparser = { version = "0.1.0", features = ["full"], optional = true }
