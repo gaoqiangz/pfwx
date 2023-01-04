@@ -1,6 +1,7 @@
 use super::{
     response::{HttpResponse, HttpResponseKind}, *
 };
+use bytes::BytesMut;
 use futures_util::StreamExt;
 use reqwest::{
     header::{HeaderName, HeaderValue}, RequestBuilder
@@ -151,46 +152,61 @@ impl HttpRequest {
             };
             let invoker = client.invoker();
             let sending = builder.unwrap().send();
-            /*let cancel_hdl = client.spawn(
+            let cancel_hdl = client.spawn(
                 async move {
                     let _lock = if let Some(lock) = lock.as_ref() {
                         Some(lock.lock().await)
                     } else {
                         None
                     };
-                    let rv = match sending.await {
+                    let resp = match sending.await {
                         Ok(resp) => {
+                            let status = resp.status();
+                            let headers = resp.headers().clone();
                             let total_size = resp.content_length().unwrap_or_default() as _;
                             let mut recv_size = 0;
+                            let mut recv_data = BytesMut::with_capacity(total_size);
                             let mut stream = resp.bytes_stream();
-                            while let Some(data) = stream.next().await {
-                                let data = data.unwrap();
-                                recv_size += data.len();
-                                if invoker
-                                    .invoke(
-                                        (id, total_size, recv_size),
-                                        |this, (id, total_size, recv_size)| {
-                                            this.on_recv(id, total_size, received, speed);
+                            'outter: loop {
+                                while let Some(data) = stream.next().await {
+                                    let data = match data {
+                                        Ok(data) => data,
+                                        Err(e) => {
+                                            break 'outter HttpResponseKind::receive_error(
+                                                status,
+                                                headers,
+                                                e.to_string()
+                                            );
                                         }
-                                    )
-                                    .await
-                                    .is_err()
-                                {
-                                    bail!("操作被取消");
+                                    };
+                                    recv_size += data.len();
+                                    recv_data.extend_from_slice(&data);
+                                    if invoker
+                                        .invoke(
+                                            (id, total_size, recv_size),
+                                            |this, (id, total_size, recv_size)| {
+                                                //this.on_recv(id, total_size, recv_size, speed);
+                                            }
+                                        )
+                                        .await
+                                        .is_err()
+                                    {
+                                        break 'outter HttpResponseKind::cancelled();
+                                    }
                                 }
+                                break HttpResponseKind::received(status, headers, recv_data.freeze());
                             }
-                            resp.text().await.unwrap_or_default()
                         },
-                        Err(e) => e.to_string()
+                        Err(e) => HttpResponseKind::send_error(e.to_string())
                     };
-                    (id, rv)
+                    (id, resp)
                 },
-                |this, (id, rv)| {
-                    this.on_complete(id, rv);
+                |this, (id, resp)| {
+                    let resp = HttpResponse::new_object_modify(&this.session, |obj| obj.init(resp)).unwrap();
+                    this.on_complete(id, resp);
                 }
             );
             client.push_pending(id, cancel_hdl);
-            */
         } else {
             panic!("invalid object");
         }
