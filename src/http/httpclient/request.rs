@@ -89,7 +89,7 @@ impl HttpRequest {
         }
     }
 
-    #[method]
+    #[method(overload = 1)]
     fn send(&mut self, hevent: Option<pbulong>) -> String {
         if let Some(HttpRequestInner {
             client,
