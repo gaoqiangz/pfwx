@@ -16,7 +16,7 @@ impl DWParser {
     /// 从DW语法解析
     ///
     /// 支持`.srd`文件格式
-    #[method]
+    #[method(name = "Parse")]
     fn parse(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
             //SAFETY
@@ -33,7 +33,7 @@ impl DWParser {
     /// 获取指定语法项的参数值
     ///
     /// 兼容`DataWindow::Describe`参数和返回值
-    #[method]
+    #[method(name = "Describe")]
     fn describe(&self, selector: String) -> String {
         if let Some(inner) = &self.inner {
             inner.ast.describe(&selector)
@@ -45,7 +45,7 @@ impl DWParser {
     /// 修改语法项的参数值
     ///
     /// 兼容`DataWindow::Modify`参数和返回值
-    #[method]
+    #[method(name = "Modify")]
     fn modify(&mut self, modifier: String) -> String {
         if let Some(inner) = &mut self.inner {
             inner.ast.modify(&modifier)
@@ -55,7 +55,7 @@ impl DWParser {
     }
 
     /// 反序列化`JSON-AST`字符串
-    #[method]
+    #[method(name = "FromJson")]
     fn from_json_ast(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
             //SAFETY
@@ -70,7 +70,7 @@ impl DWParser {
     }
 
     /// 序列化为`JSON-AST`字符串
-    #[method]
+    #[method(name = "ToJson")]
     fn to_json_ast(&self) -> String {
         if let Some(inner) = &self.inner {
             serde_json::to_string(&inner.ast).unwrap_or_default()
