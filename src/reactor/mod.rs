@@ -37,8 +37,11 @@ impl<T> UnsafePointer<T> {
     unsafe fn from_raw(raw: *mut T) -> Self { UnsafePointer(raw) }
     fn into_raw(self) -> *mut T { self.0 }
     fn cast<U>(self) -> UnsafePointer<U> { UnsafePointer(self.0 as *mut U) }
-    unsafe fn clone(&self) -> UnsafePointer<T> { UnsafePointer(self.0) }
     fn as_raw(&self) -> *mut T { self.0 }
+}
+
+impl<T> Clone for UnsafePointer<T> {
+    fn clone(&self) -> Self { UnsafePointer(self.0) }
 }
 
 unsafe impl<T> Send for UnsafePointer<T> {}

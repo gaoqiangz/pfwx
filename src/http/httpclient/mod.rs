@@ -29,7 +29,7 @@ struct HttpClient {
 impl HttpClient {
     #[constructor]
     fn new(session: Session, ctx: ContextObject) -> Self {
-        let state = HandlerState::new();
+        let state = HandlerState::new(session.clone());
         let client = Client::new();
         let cfg = Rc::new(HttpClientRuntimeConfig::default());
         let seq_lock = Arc::new(Mutex::new(()));
@@ -116,6 +116,5 @@ impl HttpClient {
 }
 
 impl Handler for HttpClient {
-    fn session(&self) -> &Session { &self.session }
     fn state(&self) -> &HandlerState { &self.state }
 }

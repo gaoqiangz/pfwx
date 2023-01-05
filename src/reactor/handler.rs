@@ -10,9 +10,6 @@ use tokio::sync::oneshot;
 
 /// 回调处理对象抽象
 pub trait Handler: Sized + 'static {
-    /// PB会话
-    fn session(&self) -> &Session;
-
     /// 对象状态
     fn state(&self) -> &HandlerState;
 
@@ -148,25 +145,35 @@ pub enum SpawnBlockingError {
     Panic(String)
 }
 
-/// 对象状态
-#[derive(Default, Clone)]
-pub struct HandlerState(Arc<Mutex<CancelManager>>);
+/// 回调处理对象的状态
+pub struct HandlerState {
+    session: Session,
+    mgr: Arc<Mutex<HandlerStateManager>>
+}
 
 impl HandlerState {
-    pub fn new() -> HandlerState { Default::default() }
+    pub fn new(session: Session) -> Self {
+        HandlerState {
+            session,
+            mgr: Default::default()
+        }
+    }
+
+    /// PB会话
+    fn session(&self) -> &Session { &self.session }
 
     /// 存活状态监视
-    fn alive(&self) -> AliveState { AliveState(Arc::downgrade(&self.0)) }
+    fn alive(&self) -> AliveState { AliveState(Arc::downgrade(&self.mgr)) }
 
     /// 新建一个异步任务取消句柄
     fn new_cancel_handle(&self) -> (CancelHandle, oneshot::Receiver<()>) {
-        let mut inner = self.0.lock().unwrap();
-        let (id, rx) = inner.new_cancel_id();
-        drop(inner);
+        let mut mgr = self.mgr.lock().unwrap();
+        let (id, rx) = mgr.new_cancel_id();
+        drop(mgr);
         (
             CancelHandle {
                 id,
-                state: Arc::downgrade(&self.0),
+                mgr: Arc::downgrade(&self.mgr),
                 _marker: PhantomData
             },
             rx
@@ -175,14 +182,14 @@ impl HandlerState {
 
     /// 通过取消ID删除取消句柄
     fn remove_cancel_id(&self, id: u64) -> bool {
-        let mut inner = self.0.lock().unwrap();
-        inner.remove(id)
+        let mut mgr = self.mgr.lock().unwrap();
+        mgr.remove_cancel(id)
     }
 }
 
 /// 对象存活状态监视
 #[derive(Clone)]
-pub struct AliveState(Weak<Mutex<CancelManager>>);
+pub struct AliveState(Weak<Mutex<HandlerStateManager>>);
 
 impl AliveState {
     /// 是否存活
@@ -192,14 +199,14 @@ impl AliveState {
     pub fn is_dead(&self) -> bool { self.0.strong_count() == 0 }
 }
 
-/// 异步任务取消管理器
+/// 异步任务状态管理器
 #[derive(Default)]
-struct CancelManager {
+struct HandlerStateManager {
     next_id: u64,
     pending: Vec<(u64, oneshot::Sender<()>)>
 }
 
-impl CancelManager {
+impl HandlerStateManager {
     /// 新建取消ID
     fn new_cancel_id(&mut self) -> (u64, oneshot::Receiver<()>) {
         let id = self.next_id;
@@ -226,14 +233,14 @@ impl CancelManager {
     }
 
     /// 删除取消通道
-    fn remove(&mut self, id: u64) -> bool {
+    fn remove_cancel(&mut self, id: u64) -> bool {
         let len = self.pending.len();
         self.pending.retain(|item| item.0 != id);
         len != self.pending.len()
     }
 }
 
-impl Drop for CancelManager {
+impl Drop for HandlerStateManager {
     fn drop(&mut self) {
         //取消所有未完成的任务
         while let Some((_, tx)) = self.pending.pop() {
@@ -246,7 +253,7 @@ impl Drop for CancelManager {
 #[derive(Clone)]
 pub struct CancelHandle {
     id: u64,
-    state: Weak<Mutex<CancelManager>>,
+    mgr: Weak<Mutex<HandlerStateManager>>,
     // !Send
     _marker: PhantomData<*mut ()>
 }
@@ -254,9 +261,9 @@ pub struct CancelHandle {
 impl CancelHandle {
     /// 取消异步任务
     pub fn cancel(self) -> bool {
-        if let Some(state) = self.state.upgrade() {
-            let mut state = state.lock().unwrap();
-            state.cancel(self.id)
+        if let Some(mgr) = self.mgr.upgrade() {
+            let mut mgr = mgr.lock().unwrap();
+            mgr.cancel(self.id)
         } else {
             false
         }
@@ -279,7 +286,7 @@ where
 {
     /// 创建派发器并绑定对象
     fn bind(this: &T) -> Self {
-        let sync_ctx = SyncContext::current(this.session());
+        let sync_ctx = SyncContext::current(this.state().session());
         HandlerInvoker {
             this: unsafe { UnsafePointer::from_raw(this as *const T as *mut T) },
             alive: this.state().alive(),
@@ -346,7 +353,7 @@ where
 impl<T> Clone for HandlerInvoker<T> {
     fn clone(&self) -> Self {
         HandlerInvoker {
-            this: unsafe { self.this.clone() },
+            this: self.this.clone(),
             alive: self.alive.clone(),
             dsp: self.dsp.clone()
         }

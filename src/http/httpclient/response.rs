@@ -238,6 +238,7 @@ impl HttpResponse {
                         .and_then(|charset| encoding::label::encoding_from_whatwg_label(charset.as_str()))
                 },
             };
+            //NOTE 默认`utf-8`
             let codec = codec.unwrap_or(encoding::all::UTF_8);
             if codec.name() == "utf-8" {
                 String::from_utf8_lossy(&data)
