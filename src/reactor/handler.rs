@@ -142,8 +142,9 @@ pub trait Handler: Sized + 'static {
 }
 
 /// 阻塞任务错误
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SpawnBlockingError {
+    #[error("panic: {0}")]
     Panic(String)
 }
 
@@ -262,9 +263,9 @@ impl CancelHandle {
 
 /// 对象回调派发器
 pub struct HandlerInvoker<T> {
-    dsp: Dispatcher,
     this: UnsafePointer<T>,
-    alive: AliveState
+    alive: AliveState,
+    dsp: Dispatcher
 }
 
 impl<T> HandlerInvoker<T>
@@ -275,9 +276,9 @@ where
     fn bind(this: &T) -> Self {
         let sync_ctx = SyncContext::current(this.session());
         HandlerInvoker {
-            dsp: sync_ctx.dispatcher(),
             this: unsafe { UnsafePointer::from_raw(this as *const T as *mut T) },
-            alive: this.state().alive()
+            alive: this.state().alive(),
+            dsp: sync_ctx.dispatcher()
         }
     }
 
@@ -303,12 +304,16 @@ where
         let (tx, rx) = oneshot::channel();
         let handler = unsafe {
             let this = self.this.clone();
-            Box::new(move |param: UnsafeBox<()>, alive: AliveState| {
+            Box::new(move |param: UnsafeBox<()>, invoke: bool| {
                 let param = param.cast::<P>().unpack();
-                if alive.is_alive() {
+                let rv = if invoke {
                     let this = &mut *this.into_raw();
-                    assert!(tx.send(handler(this, param)).is_ok());
-                }
+                    Some(handler(this, param))
+                } else {
+                    None
+                };
+                //异步任务可能被取消
+                let _ = tx.send(rv);
             })
         };
         let param = UnsafeBox::pack(param).cast::<()>();
@@ -316,7 +321,8 @@ where
             return Err(InvokeError::TargetIsDead);
         }
         match rx.await {
-            Ok(rv) => Ok(rv),
+            Ok(Some(rv)) => Ok(rv),
+            Ok(None) => Err(InvokeError::TargetIsDead),
             Err(_) => Err(InvokeError::Panic)
         }
     }
@@ -332,16 +338,18 @@ where
 impl<T> Clone for HandlerInvoker<T> {
     fn clone(&self) -> Self {
         HandlerInvoker {
-            dsp: self.dsp.clone(),
             this: unsafe { self.this.clone() },
-            alive: self.alive.clone()
+            alive: self.alive.clone(),
+            dsp: self.dsp.clone()
         }
     }
 }
 
 /// UI线程调用错误
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InvokeError {
+    #[error("target is dead")]
     TargetIsDead,
+    #[error("panic")]
     Panic
 }

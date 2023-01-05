@@ -15,6 +15,7 @@ use windows::{
 pub use windows::Win32::Foundation::HANDLE as HEVENT;
 
 /// Win32事件句柄
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Win32Event {
     handle: HEVENT,
     waiting: Option<Waiting>

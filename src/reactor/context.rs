@@ -31,7 +31,7 @@ impl SyncContext {
         CURRENT_CONTEXT.with(|current| {
             let mut current = current.borrow_mut();
             if current.is_none() {
-                current.replace(SyncContext::new(unsafe { pbsession.clone() }));
+                current.replace(SyncContext::new(pbsession.clone()));
             }
             current.as_ref().unwrap().clone()
         })
@@ -109,11 +109,11 @@ impl SyncContext {
         if msg == WM_SYNC_CONTEXT {
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
             let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
-            let _ = pack.tx.send(()); //接收
+            let has_rx = pack.tx.send(()).is_ok(); //接收
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
                     if let Err(e) = panic::catch_unwind(AssertUnwindSafe(|| {
-                        (payload.handler)(payload.param, payload.alive);
+                        (payload.handler)(payload.param, payload.alive.is_alive() && has_rx);
                     })) {
                         let panic_info = match e.downcast_ref::<String>() {
                             Some(e) => &e,
@@ -188,7 +188,7 @@ enum MessagePayload {
 /// 消息内容-回调过程
 struct PayloadInvoke {
     param: UnsafeBox<()>,
-    handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + 'static>,
+    handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
     alive: AliveState
 }
 
@@ -208,7 +208,7 @@ impl Dispatcher {
     pub(super) async fn dispatch_invoke(
         &self,
         param: UnsafeBox<()>,
-        handler: Box<dyn FnOnce(UnsafeBox<()>, AliveState) + Send + 'static>,
+        handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
         alive: AliveState
     ) -> bool {
         self.dispatch(MessagePayload::Invoke(PayloadInvoke {
@@ -250,7 +250,7 @@ impl Dispatcher {
                 //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
                 let msg_pack = msg_pack.unpack();
                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                    (payload.handler)(payload.param, payload.alive);
+                    (payload.handler)(payload.param, false);
                 }
                 return false;
             }
@@ -267,7 +267,7 @@ impl Dispatcher {
                             //窗口已经被销毁，需要释放内存
                             let msg_pack = msg_pack.unpack();
                             if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                                (payload.handler)(payload.param, payload.alive);
+                                (payload.handler)(payload.param, false);
                             }
                             return false;
                         }
