@@ -54,7 +54,7 @@ impl HttpClient {
         }
     }
 
-    #[method]
+    #[method(name = "Reconfig")]
     fn reconfig(&mut self, cfg: &mut HttpClientConfig) -> RetCode {
         let (client, rt_cfg) = cfg.build()?;
         self.client = client;
@@ -62,88 +62,42 @@ impl HttpClient {
         RetCode::OK
     }
 
-    #[method]
-    fn get(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.get(url));
-        })
-    }
-
-    #[method]
-    fn post(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.post(url));
-        })
-    }
-
-    #[method]
-    fn put(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.put(url));
-        })
-    }
-
-    #[method]
-    fn patch(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.patch(url));
-        })
-    }
-
-    #[method]
-    fn delete(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.delete(url));
-        })
-    }
-
-    #[method]
-    fn head(&self, url: String) -> Result<Object> {
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.head(url));
-        })
-    }
-
-    #[method]
+    #[method(name = "Request")]
     fn request(&self, method: String, url: String) -> Result<Object> {
-        let method = match Method::from_str(&method) {
+        let method = match Method::from_str(&method.to_ascii_uppercase()) {
             Ok(method) => method,
             Err(_) => return Err(PBXRESULT::E_INVALID_ARGUMENT)
         };
         HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.clone(), self.client.request(method, url));
+            obj.init(self.ctx.share(), self.client.request(method, url));
         })
     }
 
-    #[method]
-    fn cancel(&self, id: pbulong) {
+    #[method(name = "Cancel")]
+    fn cancel(&self, id: pbulong) -> RetCode {
         let mut pending = self.pending.lock().unwrap();
         if let Some(hdl) = pending.remove(&id) {
             hdl.cancel();
+            RetCode::OK
+        } else {
+            RetCode::E_DATA_NOT_FOUND
         }
     }
 
-    #[event(name = "OnReceive")]
-    fn on_recv(&mut self, id: pbulong, total: pbulong, received: pbulong, speed: pbulong) {}
+    #[event(name = "OnSuccess")]
+    fn on_succ(&mut self, id: pbulong, resp: &Object) {}
+
+    #[event(name = "OnError")]
+    fn on_error(&mut self, id: pbulong, resp: &Object) {}
+
     #[event(name = "OnComplete")]
-    fn on_complete(&mut self, id: pbulong, resp: Object) {}
+    fn on_complete(&mut self, id: pbulong, resp: &Object) {}
+
+    #[event(name = "OnReceive")]
+    fn on_recv(&mut self, id: pbulong, total: pbulong, received: pbulong, speed: pbulong) -> RetCode {}
 }
 
 impl Handler for HttpClient {
     fn session(&self) -> &Session { &self.session }
     fn state(&self) -> &HandlerState { &self.state }
-}
-
-impl Clone for HttpClient {
-    fn clone(&self) -> Self {
-        HttpClient {
-            session: unsafe { self.session.clone() },
-            ctx: unsafe { self.ctx.clone() },
-            state: self.state.clone(),
-            client: self.client.clone(),
-            cfg: self.cfg.clone(),
-            seq_lock: self.seq_lock.clone(),
-            pending: self.pending.clone()
-        }
-    }
 }

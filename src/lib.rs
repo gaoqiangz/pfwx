@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![feature(try_trait_v2)]
 
 mod retcode;

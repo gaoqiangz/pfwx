@@ -4,12 +4,17 @@ use reqwest::{
 };
 use std::time::Duration;
 
-#[derive(Default)]
 pub struct HttpClientRuntimeConfig {
     /// 异步请求-保证按调用顺序执行
-    pub guarantee_order: bool,
-    /// 异步请求-进度回调`OnReceive`
-    pub progress: bool
+    pub guarantee_order: bool
+}
+
+impl Default for HttpClientRuntimeConfig {
+    fn default() -> Self {
+        HttpClientRuntimeConfig {
+            guarantee_order: true
+        }
+    }
 }
 
 pub struct HttpClientConfig {
@@ -42,14 +47,14 @@ impl HttpClientConfig {
         Ok((client, rt_cfg))
     }
 
-    #[method]
+    #[method(name = "SetAgent")]
     fn agent(&mut self, val: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.user_agent(val));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetDefaultHeader")]
     fn default_header(&mut self, key: String, val: String) -> &ContextObject {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -61,21 +66,21 @@ impl HttpClientConfig {
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetCookieStore")]
     fn cookie_store(&mut self, enabled: bool) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.cookie_store(enabled));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetProxy")]
     fn proxy(&mut self, url: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.proxy(Proxy::all(url).expect("invalid proxy url")));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetProxy")]
     fn proxy_with_cred(&mut self, url: String, user: String, psw: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder
@@ -83,7 +88,7 @@ impl HttpClientConfig {
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "AddRootCertificate")]
     fn add_root_certificate(&mut self, pem: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(
@@ -94,14 +99,14 @@ impl HttpClientConfig {
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetSysRootCertificate")]
     fn sys_root_certificate(&mut self, enabled: bool) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.tls_built_in_root_certs(enabled));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetCertificate")]
     fn certificate_pkcs8(&mut self, pem: String, key: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.identity(
@@ -110,64 +115,56 @@ impl HttpClientConfig {
         &self.ctx
     }
 
-    #[method]
-    fn certificate_pkcs12(&mut self, der: &[u8], key: String) -> &ContextObject {
+    #[method(name = "SetCertificatePKCS12")]
+    fn certificate_pkcs12(&mut self, der: &[u8], psw: String) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(
             builder.identity(
-                Identity::from_pkcs12_der(der, key.as_str()).expect("invalid certificate (PKCS12)")
+                Identity::from_pkcs12_der(der, psw.as_str()).expect("invalid certificate (PKCS12)")
             )
         );
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "AcceptInvalidCert")]
     fn accept_invalid_certs(&mut self, enabled: bool) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.danger_accept_invalid_certs(enabled));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "AcceptInvalidHost")]
     fn accept_invalid_hostnames(&mut self, enabled: bool) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.danger_accept_invalid_hostnames(enabled));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetTimeout")]
     fn timeout(&mut self, secs: pbdouble) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.timeout(Duration::from_secs_f64(secs)));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetConnectTimeout")]
     fn connect_timeout(&mut self, secs: pbdouble) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.connect_timeout(Duration::from_secs_f64(secs)));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetHttpsOnly")]
     fn https_only(&mut self, enabled: bool) -> &ContextObject {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.https_only(enabled));
         &self.ctx
     }
 
-    #[method]
+    #[method(name = "SetGuaranteeOrder")]
     fn guarantee_order(&mut self, enabled: bool) -> &ContextObject {
         let mut rt_cfg = self.rt_cfg.take().unwrap();
         rt_cfg.guarantee_order = enabled;
-        self.rt_cfg.replace(rt_cfg);
-        &self.ctx
-    }
-
-    #[method]
-    fn progress(&mut self, enabled: bool) -> &ContextObject {
-        let mut rt_cfg = self.rt_cfg.take().unwrap();
-        rt_cfg.progress = enabled;
         self.rt_cfg.replace(rt_cfg);
         &self.ctx
     }

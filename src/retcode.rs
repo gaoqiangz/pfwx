@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
-use pbni::pbx::{Result as PBXResult, ToValue, Value};
+use pbni::pbx::{FromValue, Result as PBXResult, ToValue, Value, PBXRESULT};
 use std::{convert::Infallible, ops::FromResidual};
 
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RetCode {
     OK = 0,
     PREVENT = 1,
@@ -43,6 +45,17 @@ pub enum RetCode {
     E_NO_SUPPORT = -2000,
     E_NO_IMPLEMENTATION = -2001,
     UNKNOWN = -4000
+}
+
+impl FromValue<'_> for RetCode {
+    fn from_value(val: Option<Value>) -> PBXResult<Self> {
+        match val {
+            Some(val) => {
+                val.try_get_long().map(|val| unsafe { std::mem::transmute(val.unwrap_or_default()) })
+            },
+            None => Err(PBXRESULT::E_INVOKE_WRONG_NUM_ARGS)
+        }
+    }
 }
 
 impl ToValue for RetCode {
