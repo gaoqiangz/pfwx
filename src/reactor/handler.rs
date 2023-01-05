@@ -215,10 +215,13 @@ impl CancelManager {
     }
 
     /// 取消任务
-    fn cancel(&mut self, id: u64) {
+    fn cancel(&mut self, id: u64) -> bool {
         if let Some(idx) = self.pending.iter().position(|item| item.0 == id) {
             let (_, tx) = self.pending.remove(idx);
             let _ = tx.send(());
+            true
+        } else {
+            false
         }
     }
 
@@ -250,10 +253,12 @@ pub struct CancelHandle {
 
 impl CancelHandle {
     /// 取消异步任务
-    pub fn cancel(self) {
+    pub fn cancel(self) -> bool {
         if let Some(state) = self.state.upgrade() {
             let mut state = state.lock().unwrap();
-            state.cancel(self.id);
+            state.cancel(self.id)
+        } else {
+            false
         }
     }
 
@@ -323,7 +328,10 @@ where
         match rx.await {
             Ok(Some(rv)) => Ok(rv),
             Ok(None) => Err(InvokeError::TargetIsDead),
-            Err(_) => Err(InvokeError::Panic)
+            Err(_) => {
+                //回调过程发生异常导致`tx`被提前销毁
+                Err(InvokeError::Panic)
+            }
         }
     }
 

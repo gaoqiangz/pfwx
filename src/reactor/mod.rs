@@ -8,7 +8,7 @@ mod handler;
 mod event;
 pub mod futures;
 
-pub use handler::{CancelHandle, Handler, HandlerState};
+pub use handler::{CancelHandle, Handler, HandlerState, InvokeError, SpawnBlockingError};
 
 /// 非类型安全的堆分配器
 #[repr(transparent)]
