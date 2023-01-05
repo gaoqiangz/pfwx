@@ -8,12 +8,18 @@ use std::{borrow::Cow, fmt::Display};
 
 #[derive(Default)]
 pub struct HttpResponse {
-    inner: Option<HttpResponseKind>
+    inner: Option<HttpResponseKind>,
+    elapsed: u128,
+    async_id: Option<pbulong>
 }
 
 #[nonvisualobject(name = "nx_httpresponse")]
 impl HttpResponse {
-    pub fn init(&mut self, kind: HttpResponseKind) { self.inner = Some(kind); }
+    pub fn init(&mut self, kind: HttpResponseKind, elapsed: u128, async_id: Option<pbulong>) {
+        self.inner = Some(kind);
+        self.elapsed = elapsed;
+        self.async_id = async_id;
+    }
 
     fn status(&self) -> Option<StatusCode> {
         if let Some(inner) = self.inner.as_ref() {
@@ -116,23 +122,45 @@ impl HttpResponse {
 
     #[method(name = "IsText")]
     fn is_text(&self) -> bool {
-        self.content_type().map(|content_type| content_type.type_() == "text").unwrap_or_default()
+        self.content_type()
+            .map(|content_type| {
+                content_type.type_() == "text" || content_type.subtype().as_str().ends_with("text")
+            })
+            .unwrap_or_default()
     }
 
     #[method(name = "IsJSON")]
     fn is_json(&self) -> bool {
-        self.content_type().map(|content_type| content_type.subtype() == "json").unwrap_or_default()
+        self.content_type()
+            .map(|content_type| content_type.subtype().as_str().ends_with("json"))
+            .unwrap_or_default()
     }
 
     #[method(name = "IsXML")]
     fn is_xml(&self) -> bool {
         self.content_type()
             .map(|content_type| {
-                content_type.subtype() == "xml" ||
+                content_type.subtype().as_str().ends_with("xml") ||
                     content_type.suffix().map(|v| v == "xml").unwrap_or_default()
             })
             .unwrap_or_default()
     }
+
+    #[method(name = "IsBinary")]
+    fn is_binary(&self) -> bool {
+        self.content_type()
+            .map(|content_type| content_type.subtype().as_str().ends_with("stream"))
+            .unwrap_or_default()
+    }
+
+    #[method(name = "IsAsync")]
+    fn is_async(&self) -> bool { self.async_id.is_some() }
+
+    #[method(name = "GetAsyncId")]
+    fn id(&self) -> pbulong { self.async_id.unwrap_or_default() }
+
+    #[method(name = "GetElapsed")]
+    fn elapsed(&self) -> pbulong { self.elapsed as pbulong }
 
     #[method(name = "GetHeader")]
     fn header(&self, key: String) -> String {
@@ -142,7 +170,6 @@ impl HttpResponse {
             .map(|v| v.to_owned())
             .unwrap_or_default()
     }
-
     #[method(name = "GetHeader")]
     fn header_by_index(&self, index: pbint) -> String {
         self.headers()

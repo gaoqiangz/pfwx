@@ -97,8 +97,9 @@ impl HttpRequest {
         {
             let client = unsafe { client.get_native_ref::<HttpClient>().expect("httpclient invalid") };
             let sending = builder.unwrap().send();
-            let resp = client
+            let (resp, elapsed) = client
                 .spawn_blocking(async move {
+                    let inst = Instant::now();
                     let fut = async move {
                         match sending.await {
                             Ok(resp) => {
@@ -112,7 +113,7 @@ impl HttpRequest {
                             Err(e) => HttpResponseKind::send_error(e)
                         }
                     };
-                    if let Some(hevent) = hevent {
+                    let resp = if let Some(hevent) = hevent {
                         if let Some(rv) = futures::cancel_by_event(fut, hevent).await {
                             rv
                         } else {
@@ -120,13 +121,14 @@ impl HttpRequest {
                         }
                     } else {
                         fut.await
-                    }
+                    };
+                    (resp, inst.elapsed().as_millis())
                 })
                 .unwrap();
-            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp))
+            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp, elapsed, None))
         } else {
             HttpResponse::new_object_modify(&self.session, |obj| {
-                obj.init(HttpResponseKind::send_error("invalid request object"))
+                obj.init(HttpResponseKind::send_error("invalid request object"), 0, None)
             })
         }
     }
@@ -157,18 +159,12 @@ impl HttpRequest {
                     } else {
                         None
                     };
-                    (id, fut.await)
+                    let inst = Instant::now();
+                    let resp = fut.await;
+                    (id, resp, inst.elapsed().as_millis())
                 },
-                |this, (id, resp)| {
-                    let is_cancelled = resp.is_cancelled();
-                    let is_succ = resp.is_succ();
-                    let resp = HttpResponse::new_object_modify(&this.session, |obj| obj.init(resp)).unwrap();
-                    if is_succ {
-                        this.on_succ(id, &resp);
-                    } else if !is_cancelled {
-                        this.on_error(id, &resp);
-                    }
-                    this.on_complete(id, &resp);
+                |this, (id, resp, elapsed)| {
+                    this.complete(id, resp, elapsed);
                 }
             );
             client.push_pending(id, cancel_hdl);
@@ -178,6 +174,7 @@ impl HttpRequest {
         }
     }
 
+    /// 异步请求实现
     fn async_send_no_progress_impl(&self, builder: RequestBuilder) -> impl Future<Output = HttpResponseKind> {
         let sending = builder.send();
         async move {
@@ -195,6 +192,7 @@ impl HttpRequest {
         }
     }
 
+    /// 带进度回调的异步请求实现
     fn async_send_progress_impl(
         &self,
         client: &HttpClient,
@@ -219,6 +217,14 @@ impl HttpRequest {
                     let mut tick_size = 0; //基准
                     let mut tick_invoke = Either::Left(future::pending());
 
+                    #[derive(PartialEq, Eq)]
+                    enum DoneFlag {
+                        Pending,
+                        Invoke,
+                        Done
+                    }
+                    let mut done_flag = DoneFlag::Pending;
+
                     loop {
                         tokio::select! {
                             chunk = resp.chunk() => {
@@ -227,7 +233,16 @@ impl HttpRequest {
                                         recv_size += chunk.len();
                                         recv_data.extend_from_slice(&chunk);
                                     },
-                                    Ok(None) => break HttpResponseKind::received(status, headers, recv_data.freeze()),
+                                    Ok(None) => {
+                                        if done_flag == DoneFlag::Pending {
+                                            done_flag = DoneFlag::Invoke;
+                                        }
+                                        if done_flag == DoneFlag::Invoke {
+                                            tokio::task::yield_now().await;
+                                            continue;
+                                        }
+                                        break HttpResponseKind::received(status, headers, recv_data.freeze())
+                                    },
                                     Err(e) => {
                                         break HttpResponseKind::receive_error(status, headers, e);
                                     }
@@ -249,6 +264,9 @@ impl HttpRequest {
                                             )
                                         )
                                     );
+                                    if done_flag == DoneFlag::Invoke {
+                                        done_flag = DoneFlag::Done;
+                                    }
                                 }
                             },
                             rv = &mut tick_invoke => {
@@ -260,7 +278,8 @@ impl HttpRequest {
                                             break HttpResponseKind::cancelled();
                                         }
                                     },
-                                    Err(e) => panic!("callback panic: {e:?}")
+                                    Err(InvokeError::TargetIsDead) => break HttpResponseKind::cancelled(),
+                                    Err(InvokeError::Panic) => panic!("callback panic")
                                 }
                             }
                         }

@@ -11,9 +11,9 @@ mod config;
 mod response;
 mod request;
 
-use config::HttpClientConfig;
-
-use self::{config::HttpClientRuntimeConfig, request::HttpRequest};
+use config::{HttpClientConfig, HttpClientRuntimeConfig};
+use request::HttpRequest;
+use response::{HttpResponse, HttpResponseKind};
 
 struct HttpClient {
     session: Session,
@@ -54,6 +54,21 @@ impl HttpClient {
         }
     }
 
+    fn complete(&mut self, id: pbulong, resp: HttpResponseKind, elapsed: u128) {
+        let is_cancelled = resp.is_cancelled();
+        let is_succ = resp.is_succ();
+        let resp =
+            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp, elapsed, Some(id))).unwrap();
+        if !is_cancelled {
+            if is_succ {
+                self.on_succ(id, &resp);
+            } else {
+                self.on_error(id, &resp);
+            }
+        }
+        self.on_complete(id, &resp);
+    }
+
     #[method(name = "Reconfig")]
     fn reconfig(&mut self, cfg: &mut HttpClientConfig) -> RetCode {
         let (client, rt_cfg) = cfg.build()?;
@@ -74,10 +89,13 @@ impl HttpClient {
     }
 
     #[method(name = "Cancel")]
-    fn cancel(&self, id: pbulong) -> RetCode {
+    fn cancel(&mut self, id: pbulong) -> RetCode {
         let mut pending = self.pending.lock().unwrap();
         if let Some(hdl) = pending.remove(&id) {
-            hdl.cancel();
+            drop(pending);
+            if hdl.cancel() {
+                self.complete(id, HttpResponseKind::cancelled(), 0);
+            }
             RetCode::OK
         } else {
             RetCode::E_DATA_NOT_FOUND
