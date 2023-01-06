@@ -10,9 +10,6 @@ struct DWParser {
 
 #[nonvisualobject(name = "nx_dwparser")]
 impl DWParser {
-    #[constructor]
-    fn new(_session: Session, _ctx: ContextObject) -> Self { Default::default() }
-
     /// 从DW语法解析
     ///
     /// 支持`.srd`文件格式

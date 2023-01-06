@@ -2,9 +2,9 @@ use super::{
     context::{Dispatcher, SyncContext}, runtime, UnsafeBox, UnsafePointer
 };
 use futures_util::FutureExt;
-use pbni::pbx::Session;
+use pbni::pbx::{AliveState, Session};
 use std::{
-    future::Future, marker::PhantomData, panic::AssertUnwindSafe, sync::{Arc, Mutex, Weak}
+    cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, rc::{Rc, Weak}
 };
 use tokio::sync::oneshot;
 
@@ -12,6 +12,9 @@ use tokio::sync::oneshot;
 pub trait Handler: Sized + 'static {
     /// 对象状态
     fn state(&self) -> &HandlerState;
+
+    /// 存活状态
+    fn alive_state(&self) -> AliveState;
 
     /// 对象回调派发器
     fn invoker(&self) -> HandlerInvoker<Self> { HandlerInvoker::bind(self) }
@@ -148,7 +151,7 @@ pub enum SpawnBlockingError {
 /// 回调处理对象的状态
 pub struct HandlerState {
     session: Session,
-    mgr: Arc<Mutex<HandlerStateManager>>
+    mgr: Rc<RefCell<HandlerStateManager>>
 }
 
 impl HandlerState {
@@ -162,18 +165,15 @@ impl HandlerState {
     /// PB会话
     fn session(&self) -> &Session { &self.session }
 
-    /// 存活状态监视
-    fn alive(&self) -> AliveState { AliveState(Arc::downgrade(&self.mgr)) }
-
     /// 新建一个异步任务取消句柄
     fn new_cancel_handle(&self) -> (CancelHandle, oneshot::Receiver<()>) {
-        let mut mgr = self.mgr.lock().unwrap();
+        let mut mgr = self.mgr.borrow_mut();
         let (id, rx) = mgr.new_cancel_id();
         drop(mgr);
         (
             CancelHandle {
                 id,
-                mgr: Arc::downgrade(&self.mgr),
+                mgr: Rc::downgrade(&self.mgr),
                 _marker: PhantomData
             },
             rx
@@ -182,21 +182,9 @@ impl HandlerState {
 
     /// 通过取消ID删除取消句柄
     fn remove_cancel_id(&self, id: u64) -> bool {
-        let mut mgr = self.mgr.lock().unwrap();
+        let mut mgr = self.mgr.borrow_mut();
         mgr.remove_cancel(id)
     }
-}
-
-/// 对象存活状态监视
-#[derive(Clone)]
-pub struct AliveState(Weak<Mutex<HandlerStateManager>>);
-
-impl AliveState {
-    /// 是否存活
-    pub fn is_alive(&self) -> bool { self.0.strong_count() != 0 }
-
-    /// 是否死亡
-    pub fn is_dead(&self) -> bool { self.0.strong_count() == 0 }
 }
 
 /// 异步任务状态管理器
@@ -253,7 +241,7 @@ impl Drop for HandlerStateManager {
 #[derive(Clone)]
 pub struct CancelHandle {
     id: u64,
-    mgr: Weak<Mutex<HandlerStateManager>>,
+    mgr: Weak<RefCell<HandlerStateManager>>,
     // !Send
     _marker: PhantomData<*mut ()>
 }
@@ -262,7 +250,7 @@ impl CancelHandle {
     /// 取消异步任务
     pub fn cancel(self) -> bool {
         if let Some(mgr) = self.mgr.upgrade() {
-            let mut mgr = mgr.lock().unwrap();
+            let mut mgr = mgr.borrow_mut();
             mgr.cancel(self.id)
         } else {
             false
@@ -280,16 +268,13 @@ pub struct HandlerInvoker<T> {
     dsp: Dispatcher
 }
 
-impl<T> HandlerInvoker<T>
-where
-    T: Handler
-{
+impl<T: Handler> HandlerInvoker<T> {
     /// 创建派发器并绑定对象
     fn bind(this: &T) -> Self {
         let sync_ctx = SyncContext::current(this.state().session());
         HandlerInvoker {
             this: unsafe { UnsafePointer::from_raw(this as *const T as *mut T) },
-            alive: this.state().alive(),
+            alive: this.alive_state(),
             dsp: sync_ctx.dispatcher()
         }
     }

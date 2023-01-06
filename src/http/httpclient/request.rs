@@ -9,23 +9,13 @@ use reqwest::{
 use std::{future::Future, time::Duration};
 use tokio::time::{self, Instant};
 
+#[derive(Default)]
 pub struct HttpRequest {
-    session: Session,
-    ctx: ContextObject,
     inner: Option<HttpRequestInner>
 }
 
 #[nonvisualobject(name = "nx_httprequest")]
 impl HttpRequest {
-    #[constructor]
-    fn new(session: Session, ctx: ContextObject) -> Self {
-        HttpRequest {
-            session,
-            ctx,
-            inner: None
-        }
-    }
-
     pub(super) fn init(&mut self, client: SharedObject, builder: RequestBuilder) {
         self.inner = Some(HttpRequestInner {
             client,
@@ -34,7 +24,7 @@ impl HttpRequest {
     }
 
     #[method(name = "SetHeader")]
-    fn header(&mut self, key: String, val: String) -> &ContextObject {
+    fn header(&mut self, key: String, val: String) -> Object {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.header(
@@ -42,11 +32,11 @@ impl HttpRequest {
                 HeaderValue::from_str(&val).expect("invalid header value")
             ));
         }
-        &self.ctx
+        self.get_object()
     }
 
     #[method(name = "SetBasicAuth")]
-    fn basic_auth(&mut self, user: String, psw: String) -> &ContextObject {
+    fn basic_auth(&mut self, user: String, psw: String) -> Object {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.basic_auth(
@@ -58,34 +48,34 @@ impl HttpRequest {
                 }
             ));
         }
-        &self.ctx
+        self.get_object()
     }
 
     #[method(name = "SetBearerAuth")]
-    fn bearer_auth(&mut self, token: String) -> &ContextObject {
+    fn bearer_auth(&mut self, token: String) -> Object {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.bearer_auth(token));
         }
-        &self.ctx
+        self.get_object()
     }
 
     #[method(name = "SetTimeout")]
-    fn timeout(&mut self, secs: pbdouble) -> &ContextObject {
+    fn timeout(&mut self, secs: pbdouble) -> Object {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.timeout(Duration::from_secs_f64(secs)));
         }
-        &self.ctx
+        self.get_object()
     }
 
     #[method(name = "Query")]
-    fn query(&mut self, key: String, val: String) -> &ContextObject {
+    fn query(&mut self, key: String, val: String) -> Object {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.query(&[(key.as_str(), val.as_str())]));
         }
-        &self.ctx
+        self.get_object()
     }
 
     #[method(name = "Send", overload = 1)]
@@ -125,9 +115,9 @@ impl HttpRequest {
                     (resp, inst.elapsed().as_millis())
                 })
                 .unwrap();
-            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp, elapsed, None))
+            HttpResponse::new_object_modify(self.get_session(), |obj| obj.init(resp, elapsed, None))
         } else {
-            HttpResponse::new_object_modify(&self.session, |obj| {
+            HttpResponse::new_object_modify(self.get_session(), |obj| {
                 obj.init(HttpResponseKind::send_error("invalid request object"), 0, None)
             })
         }

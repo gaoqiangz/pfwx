@@ -1129,7 +1129,7 @@ checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
 [[package]]
 name = "pbni-codegen"
 version = "0.1.0"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#5b15d9ee13af41157fba500e44f58a5cc11b80de"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#5584ad64a438849598b2ef6ebdccd83dcab1d4d1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1139,7 +1139,7 @@ dependencies = [
 [[package]]
 name = "pbni-rs"
 version = "0.1.14"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#5b15d9ee13af41157fba500e44f58a5cc11b80de"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#5584ad64a438849598b2ef6ebdccd83dcab1d4d1"
 dependencies = [
  "cc",
  "chrono",
@@ -1700,9 +1700,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.24.0"
+version = "1.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7125661431c26622a80ca5051a2f936c9a678318e0351007b0cc313143024e5c"
+checksum = "1d9f76183f91ecfb55e1d7d5602bd1d979e38a3a522fe900241cf195624d67ae"
 dependencies = [
  "autocfg",
  "bytes",

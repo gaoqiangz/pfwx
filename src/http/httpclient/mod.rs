@@ -10,14 +10,13 @@ use tokio::sync::Mutex;
 mod config;
 mod response;
 mod request;
+mod form;
 
 use config::{HttpClientConfig, HttpClientRuntimeConfig};
 use request::HttpRequest;
 use response::{HttpResponse, HttpResponseKind};
 
 struct HttpClient {
-    session: Session,
-    ctx: ContextObject,
     state: HandlerState,
     client: Client,
     cfg: Rc<HttpClientRuntimeConfig>,
@@ -28,15 +27,13 @@ struct HttpClient {
 #[nonvisualobject(name = "nx_httpclient")]
 impl HttpClient {
     #[constructor]
-    fn new(session: Session, ctx: ContextObject) -> Self {
-        let state = HandlerState::new(session.clone());
+    fn new(session: Session, _object: Object) -> Self {
+        let state = HandlerState::new(session);
         let client = Client::new();
         let cfg = Rc::new(HttpClientRuntimeConfig::default());
         let seq_lock = Arc::new(Mutex::new(()));
         let pending = Rc::new(BlockingMutex::new(HashMap::new()));
         HttpClient {
-            session,
-            ctx,
             state,
             client,
             cfg,
@@ -44,8 +41,6 @@ impl HttpClient {
             pending
         }
     }
-
-    fn context_mut(&mut self) -> &mut ContextObject { &mut self.ctx }
 
     fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle) {
         let mut pending = self.pending.lock().unwrap();
@@ -58,7 +53,9 @@ impl HttpClient {
         let is_cancelled = resp.is_cancelled();
         let is_succ = resp.is_succ();
         let resp =
-            HttpResponse::new_object_modify(&self.session, |obj| obj.init(resp, elapsed, Some(id))).unwrap();
+            HttpResponse::new_object_modify(self.get_session(), |obj| obj.init(resp, elapsed, Some(id)))
+                .unwrap();
+        let alive = self.get_alive_state();
         if !is_cancelled {
             if is_succ {
                 self.on_succ(id, &resp);
@@ -66,7 +63,10 @@ impl HttpClient {
                 self.on_error(id, &resp);
             }
         }
-        self.on_complete(id, &resp);
+        //NOTE 对象可能被销毁
+        if alive.is_alive() {
+            self.on_complete(id, &resp);
+        }
     }
 
     #[method(name = "Reconfig")]
@@ -78,13 +78,13 @@ impl HttpClient {
     }
 
     #[method(name = "Request")]
-    fn request(&self, method: String, url: String) -> Result<Object> {
+    fn request(&mut self, method: String, url: String) -> Result<Object> {
         let method = match Method::from_str(&method.to_ascii_uppercase()) {
             Ok(method) => method,
             Err(_) => return Err(PBXRESULT::E_INVALID_ARGUMENT)
         };
-        HttpRequest::new_object_modify(&self.session, |obj| {
-            obj.init(self.ctx.share(), self.client.request(method, url));
+        HttpRequest::new_object_modify(self.get_session(), |obj| {
+            obj.init(self.get_object().share(), self.client.request(method, url));
         })
     }
 
@@ -117,4 +117,5 @@ impl HttpClient {
 
 impl Handler for HttpClient {
     fn state(&self) -> &HandlerState { &self.state }
+    fn alive_state(&self) -> AliveState { self.get_alive_state() }
 }
