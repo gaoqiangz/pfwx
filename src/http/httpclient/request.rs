@@ -221,6 +221,7 @@ impl HttpRequest {
                     enum DoneFlag {
                         Pending,
                         Invoke,
+                        Invoking,
                         Done
                     }
                     let mut done_flag = DoneFlag::Pending;
@@ -237,7 +238,7 @@ impl HttpRequest {
                                         if done_flag == DoneFlag::Pending {
                                             done_flag = DoneFlag::Invoke;
                                         }
-                                        if done_flag == DoneFlag::Invoke {
+                                        if done_flag == DoneFlag::Invoke || done_flag == DoneFlag::Invoking{
                                             tokio::task::yield_now().await;
                                             continue;
                                         }
@@ -265,7 +266,7 @@ impl HttpRequest {
                                         )
                                     );
                                     if done_flag == DoneFlag::Invoke {
-                                        done_flag = DoneFlag::Done;
+                                        done_flag = DoneFlag::Invoking;
                                     }
                                 }
                             },
@@ -280,6 +281,9 @@ impl HttpRequest {
                                     },
                                     Err(InvokeError::TargetIsDead) => break HttpResponseKind::cancelled(),
                                     Err(InvokeError::Panic) => panic!("callback panic")
+                                }
+                                if done_flag == DoneFlag::Invoking {
+                                    done_flag = DoneFlag::Done;
                                 }
                             }
                         }
