@@ -108,6 +108,7 @@ impl SyncContext {
 
         if msg == WM_SYNC_CONTEXT {
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
+            let session = ctx.pbsession.clone();
             let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
             let has_rx = pack.tx.send(()).is_ok(); //接收
             match pack.payload {
@@ -125,7 +126,7 @@ impl SyncContext {
                             },
                         };
                         pbx_throw!(
-                            ctx.pbsession,
+                            session,
                             "{}\r\nbacktrace:\r\n{:?}",
                             panic_info,
                             backtrace::Backtrace::new()
@@ -133,7 +134,7 @@ impl SyncContext {
                     }
                 },
                 MessagePayload::Panic(payload) => {
-                    pbx_throw!(ctx.pbsession, "{}", payload.info);
+                    pbx_throw!(session, "{}", payload.info);
                 }
             }
             return LRESULT(0);
