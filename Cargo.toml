@@ -46,3 +46,11 @@ reactor = ["tokio", "futures-util", "windows", "backtrace"]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
 pbni-codegen = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
 dwparser = { git = "https://github.com/gaoqiangz/dwparser.git" }
+
+# 正式发布时使用最优化编译模式，减少二进制大小
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable Link Time Optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+# panic = "abort"     # Abort on panic
