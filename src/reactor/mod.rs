@@ -24,6 +24,7 @@ impl<T> UnsafeBox<T> {
 }
 
 unsafe impl<T: Send> Send for UnsafeBox<T> {}
+unsafe impl<T: Sync> Sync for UnsafeBox<T> {}
 
 /// 非线程安全的指针，使其可以在线程间传递
 ///
