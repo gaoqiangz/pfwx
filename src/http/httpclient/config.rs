@@ -48,14 +48,14 @@ impl HttpClientConfig {
     }
 
     #[method(name = "SetAgent")]
-    fn agent(&mut self, val: String) -> Object {
+    fn agent(&mut self, val: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.user_agent(val));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetDefaultHeader")]
-    fn default_header(&mut self, key: String, val: String) -> Object {
+    fn default_header(&mut self, key: String, val: String) -> &mut Self {
         let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_str(&key).expect("invalid header key"),
@@ -63,109 +63,109 @@ impl HttpClientConfig {
         );
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.default_headers(headers));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetCookieStore")]
-    fn cookie_store(&mut self, enabled: bool) -> Object {
+    fn cookie_store(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.cookie_store(enabled));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetProxy")]
-    fn proxy(&mut self, url: String) -> Object {
+    fn proxy(&mut self, url: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.proxy(Proxy::all(url).expect("invalid proxy url")));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetProxy")]
-    fn proxy_with_cred(&mut self, url: String, user: String, psw: String) -> Object {
+    fn proxy_with_cred(&mut self, url: String, user: String, psw: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder
             .replace(builder.proxy(Proxy::all(url).expect("invalid proxy url").basic_auth(&user, &psw)));
-        self.get_object()
+        self
     }
 
     #[method(name = "AddRootCertificate")]
-    fn add_root_certificate(&mut self, pem: String) -> Object {
+    fn add_root_certificate(&mut self, pem: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(
             builder.add_root_certificate(
                 Certificate::from_pem(pem.as_bytes()).expect("invalid root certificate")
             )
         );
-        self.get_object()
+        self
     }
 
     #[method(name = "SetSysRootCertificate")]
-    fn sys_root_certificate(&mut self, enabled: bool) -> Object {
+    fn sys_root_certificate(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.tls_built_in_root_certs(enabled));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetCertificate")]
-    fn certificate_pkcs8(&mut self, pem: String, key: String) -> Object {
+    fn certificate_pkcs8(&mut self, pem: String, key: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.identity(
             Identity::from_pkcs8_pem(pem.as_bytes(), key.as_bytes()).expect("invalid certificate (PKCS8)")
         ));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetCertificatePKCS12")]
-    fn certificate_pkcs12(&mut self, der: &[u8], psw: String) -> Object {
+    fn certificate_pkcs12(&mut self, der: &[u8], psw: String) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(
             builder.identity(
                 Identity::from_pkcs12_der(der, psw.as_str()).expect("invalid certificate (PKCS12)")
             )
         );
-        self.get_object()
+        self
     }
 
     #[method(name = "AcceptInvalidCert")]
-    fn accept_invalid_certs(&mut self, enabled: bool) -> Object {
+    fn accept_invalid_certs(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.danger_accept_invalid_certs(enabled));
-        self.get_object()
+        self
     }
 
     #[method(name = "AcceptInvalidHost")]
-    fn accept_invalid_hostnames(&mut self, enabled: bool) -> Object {
+    fn accept_invalid_hostnames(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.danger_accept_invalid_hostnames(enabled));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetTimeout")]
-    fn timeout(&mut self, secs: pbdouble) -> Object {
+    fn timeout(&mut self, secs: pbdouble) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.timeout(Duration::from_secs_f64(secs)));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetConnectTimeout")]
-    fn connect_timeout(&mut self, secs: pbdouble) -> Object {
+    fn connect_timeout(&mut self, secs: pbdouble) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.connect_timeout(Duration::from_secs_f64(secs)));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetHttpsOnly")]
-    fn https_only(&mut self, enabled: bool) -> Object {
+    fn https_only(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.https_only(enabled));
-        self.get_object()
+        self
     }
 
     #[method(name = "SetGuaranteeOrder")]
-    fn guarantee_order(&mut self, enabled: bool) -> Object {
+    fn guarantee_order(&mut self, enabled: bool) -> &mut Self {
         let mut rt_cfg = self.rt_cfg.take().unwrap();
         rt_cfg.guarantee_order = enabled;
         self.rt_cfg.replace(rt_cfg);
-        self.get_object()
+        self
     }
 }

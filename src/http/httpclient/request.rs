@@ -24,7 +24,7 @@ impl HttpRequest {
     }
 
     #[method(name = "SetHeader")]
-    fn header(&mut self, key: String, val: String) -> Object {
+    fn header(&mut self, key: String, val: String) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.header(
@@ -32,11 +32,11 @@ impl HttpRequest {
                 HeaderValue::from_str(&val).expect("invalid header value")
             ));
         }
-        self.get_object()
+        self
     }
 
     #[method(name = "SetBasicAuth")]
-    fn basic_auth(&mut self, user: String, psw: String) -> Object {
+    fn basic_auth(&mut self, user: String, psw: String) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.basic_auth(
@@ -48,34 +48,34 @@ impl HttpRequest {
                 }
             ));
         }
-        self.get_object()
+        self
     }
 
     #[method(name = "SetBearerAuth")]
-    fn bearer_auth(&mut self, token: String) -> Object {
+    fn bearer_auth(&mut self, token: String) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.bearer_auth(token));
         }
-        self.get_object()
+        self
     }
 
     #[method(name = "SetTimeout")]
-    fn timeout(&mut self, secs: pbdouble) -> Object {
+    fn timeout(&mut self, secs: pbdouble) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.timeout(Duration::from_secs_f64(secs)));
         }
-        self.get_object()
+        self
     }
 
     #[method(name = "Query")]
-    fn query(&mut self, key: String, val: String) -> Object {
+    fn query(&mut self, key: String, val: String) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.query(&[(key.as_str(), val.as_str())]));
         }
-        self.get_object()
+        self
     }
 
     #[method(name = "Send", overload = 1)]
@@ -85,7 +85,7 @@ impl HttpRequest {
             builder
         }) = self.inner.take()
         {
-            let client = unsafe { client.get_native_ref::<HttpClient>().expect("httpclient invalid") };
+            let client = client.get_native_ref::<HttpClient>().expect("httpclient invalid");
             let sending = builder.unwrap().send();
             let (resp, elapsed) = client
                 .spawn_blocking(async move {
@@ -130,7 +130,7 @@ impl HttpRequest {
             builder
         }) = self.inner.take()
         {
-            let client = unsafe { client.get_native_ref::<HttpClient>().expect("httpclient invalid") };
+            let client = client.get_native_ref::<HttpClient>().expect("httpclient invalid");
             //执行顺序锁
             let lock = if client.cfg.guarantee_order {
                 Some(client.seq_lock.clone())
