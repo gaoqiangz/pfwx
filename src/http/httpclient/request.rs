@@ -69,9 +69,24 @@ impl HttpRequest {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             let mut builder = builder.body(text);
-            if let Some(content_type) = content_type {
-                builder = builder.header(header::CONTENT_TYPE, content_type);
-            }
+            builder = builder.header(
+                header::CONTENT_TYPE,
+                content_type.unwrap_or_else(|| mime::TEXT_PLAIN_UTF_8.to_string().to_owned())
+            );
+            inner.builder.replace(builder);
+        }
+        self
+    }
+
+    #[method(name = "SetBody", overload = 1)]
+    fn binary(&mut self, data: Vec<u8>, content_type: Option<String>) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            let mut builder = builder.body(data);
+            builder = builder.header(
+                header::CONTENT_TYPE,
+                content_type.unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.to_string().to_owned())
+            );
             inner.builder.replace(builder);
         }
         self
