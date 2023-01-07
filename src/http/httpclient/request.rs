@@ -1,11 +1,9 @@
 use super::{
-    response::{HttpResponse, HttpResponseKind}, *
+    form::HttpForm, multipart::HttpMultipart, response::{HttpResponse, HttpResponseKind}, *
 };
 use bytes::BytesMut;
 use futures_util::future::{self, Either};
-use reqwest::{
-    header::{HeaderName, HeaderValue}, RequestBuilder
-};
+use reqwest::{header, RequestBuilder};
 use std::{future::Future, time::Duration};
 use tokio::time::{self, Instant};
 
@@ -27,10 +25,7 @@ impl HttpRequest {
     fn header(&mut self, key: String, val: String) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
-            inner.builder.replace(builder.header(
-                HeaderName::from_str(&key).expect("invalid header key"),
-                HeaderValue::from_str(&val).expect("invalid header value")
-            ));
+            inner.builder.replace(builder.header(key, val));
         }
         self
     }
@@ -65,6 +60,37 @@ impl HttpRequest {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
             inner.builder.replace(builder.timeout(Duration::from_secs_f64(secs)));
+        }
+        self
+    }
+
+    #[method(name = "SetBody", overload = 1)]
+    fn text(&mut self, text: String, content_type: Option<String>) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            let mut builder = builder.body(text);
+            if let Some(content_type) = content_type {
+                builder = builder.header(header::CONTENT_TYPE, content_type);
+            }
+            inner.builder.replace(builder);
+        }
+        self
+    }
+
+    #[method(name = "SetBody")]
+    fn multipart(&mut self, form: &mut HttpMultipart) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            inner.builder.replace(builder.multipart(form.build()));
+        }
+        self
+    }
+
+    #[method(name = "SetBody")]
+    fn form(&mut self, form: &mut HttpForm) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            inner.builder.replace(builder.form(&form.build()));
         }
         self
     }
