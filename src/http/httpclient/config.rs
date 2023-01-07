@@ -41,8 +41,9 @@ impl HttpClientConfig {
     ///
     /// 仅能调用一次
     pub fn build(&mut self) -> reqwest::Result<(Client, HttpClientRuntimeConfig)> {
-        let client = self.builder.replace(Self::default_builder()).unwrap().build()?;
+        let builder = self.builder.replace(Self::default_builder()).unwrap();
         let rt_cfg = self.rt_cfg.replace(HttpClientRuntimeConfig::default()).unwrap();
+        let client = builder.build()?;
         Ok((client, rt_cfg))
     }
 
