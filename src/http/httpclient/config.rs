@@ -1,4 +1,4 @@
-use super::*;
+use super::{cookie::HttpCookie, *};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue}, Certificate, ClientBuilder, Identity, Proxy
 };
@@ -70,6 +70,13 @@ impl HttpClientConfig {
     fn cookie_store(&mut self, enabled: bool) -> &mut Self {
         let builder = self.builder.take().unwrap();
         self.builder.replace(builder.cookie_store(enabled));
+        self
+    }
+
+    #[method(name = "SetCookieStore")]
+    fn cookie_provider(&mut self, store: &HttpCookie) -> &mut Self {
+        let builder = self.builder.take().unwrap();
+        self.builder.replace(builder.cookie_provider(store.get()));
         self
     }
 

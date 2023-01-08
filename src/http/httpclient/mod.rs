@@ -12,6 +12,7 @@ mod response;
 mod request;
 mod form;
 mod multipart;
+mod cookie;
 
 use config::{HttpClientConfig, HttpClientRuntimeConfig};
 use request::HttpRequest;
