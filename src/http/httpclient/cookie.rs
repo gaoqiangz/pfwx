@@ -11,15 +11,15 @@ impl HttpCookie {
     /// 获取`Cookie-Jar`
     pub fn get(&self) -> Arc<Jar> { self.jar.clone() }
 
-    #[method(name = "AddCookie")]
-    fn add_cookie(&mut self, cookie: String, url: String) -> &mut Self {
+    #[method(name = "SetCookie")]
+    fn set_cookie(&mut self, url: String, cookie: String) -> &mut Self {
         if let Ok(url) = &url.parse() {
             self.jar.add_cookie_str(&cookie, url);
         }
         self
     }
 
-    #[method(name = "GetCookies")]
+    #[method(name = "GetCookie")]
     fn get_cookie(&self, url: String) -> String {
         if let Ok(url) = &url.parse() {
             if let Some(cookie) = self.jar.cookies(url) {

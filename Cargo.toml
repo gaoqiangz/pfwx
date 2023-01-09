@@ -15,6 +15,8 @@ crate-type = ["cdylib"]
 pbni-rs = { version = "0.1.0", default-features = false, features = ["pbx", "global_function", "nonvisualobject"] }
 thiserror = "1.0.38"
 bytes = "1.3.0"
+libloading = "0.7.4"
+lazy_static = "1.4.0"
 
 # reactor
 tokio = { version = "1.23.0", features = ["sync", "macros"], optional = true }

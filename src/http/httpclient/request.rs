@@ -1,9 +1,12 @@
 use super::{
     form::HttpForm, multipart::HttpMultipart, response::{HttpResponse, HttpResponseKind}, *
 };
+use crate::base::pfw;
 use bytes::BytesMut;
 use futures_util::future::{self, Either};
-use reqwest::{header, RequestBuilder};
+use reqwest::{
+    header::{self, HeaderValue}, RequestBuilder
+};
 use std::{future::Future, time::Duration};
 use tokio::time::{self, Instant};
 
@@ -71,7 +74,7 @@ impl HttpRequest {
             let mut builder = builder.body(text);
             builder = builder.header(
                 header::CONTENT_TYPE,
-                content_type.unwrap_or_else(|| mime::TEXT_PLAIN_UTF_8.to_string().to_owned())
+                content_type.unwrap_or_else(|| mime::TEXT_PLAIN_UTF_8.to_string())
             );
             inner.builder.replace(builder);
         }
@@ -85,8 +88,32 @@ impl HttpRequest {
             let mut builder = builder.body(data);
             builder = builder.header(
                 header::CONTENT_TYPE,
-                content_type.unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.to_string().to_owned())
+                content_type.unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.to_string())
             );
+            inner.builder.replace(builder);
+        }
+        self
+    }
+
+    #[method(name = "SetBody")]
+    fn json(&mut self, obj: Object) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            let mut builder = builder.body(pfw::json_serialize(&obj));
+            builder = builder
+                .header(header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
+            inner.builder.replace(builder);
+        }
+        self
+    }
+
+    #[method(name = "SetBody")]
+    fn xml(&mut self, obj: Object) -> &mut Self {
+        if let Some(inner) = self.inner.as_mut() {
+            let builder = inner.builder.take().unwrap();
+            let mut builder = builder.body(pfw::xml_serialize(&obj));
+            builder =
+                builder.header(header::CONTENT_TYPE, HeaderValue::from_static("text/xml; charset=utf-8"));
             inner.builder.replace(builder);
         }
         self
