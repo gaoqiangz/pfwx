@@ -1,9 +1,9 @@
 use super::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, mem::replace};
 
 #[derive(Default)]
 pub struct HttpForm {
-    builder: Option<HashMap<String, String>>
+    form: HashMap<String, String>
 }
 
 #[nonvisualobject(name = "nx_httpform")]
@@ -13,12 +13,11 @@ impl HttpForm {
     /// # Notice
     ///
     /// 仅能调用一次
-    pub fn build(&mut self) -> HashMap<String, String> { self.builder.replace(HashMap::default()).unwrap() }
+    pub fn build(&mut self) -> HashMap<String, String> { replace(&mut self.form, HashMap::default()) }
 
     #[method(name = "AddField")]
     fn field(&mut self, name: String, val: String) -> &mut Self {
-        let builder = self.builder.as_mut().unwrap();
-        builder.insert(name, val);
+        self.form.insert(name, val);
         self
     }
 }
