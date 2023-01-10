@@ -38,7 +38,7 @@ pub trait Handler: Sized + 'static {
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
-        H: Fn(&mut Self, F::Output) + Send + 'static
+        H: FnOnce(&mut Self, F::Output) + Send + 'static
     {
         let invoker = self.invoker();
         let (cancel_hdl, mut cancel_rx) = self.state().new_cancel_handle();
