@@ -3,7 +3,7 @@ use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, Method};
 use std::{
-    collections::HashMap, rc::Rc, sync::{Arc, Mutex as BlockingMutex}
+    collections::HashMap, fs, rc::Rc, sync::{Arc, Mutex as BlockingMutex}, thread
 };
 use tokio::sync::Mutex;
 
@@ -23,7 +23,7 @@ struct HttpClient {
     client: Client,
     cfg: Rc<HttpClientRuntimeConfig>,
     seq_lock: Arc<Mutex<()>>,
-    pending: Rc<BlockingMutex<HashMap<pbulong, CancelHandle>>>
+    pending: Rc<BlockingMutex<HashMap<pbulong, (CancelHandle, Option<String>)>>>
 }
 
 #[nonvisualobject(name = "nx_httpclient")]
@@ -44,19 +44,24 @@ impl HttpClient {
         }
     }
 
-    fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle) {
+    fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle, receive_file: Option<String>) {
         let mut pending = self.pending.lock().unwrap();
-        if let Some(hdl) = pending.insert(id, cancel_hdl) {
+        if let Some((hdl, receive_file)) = pending.insert(id, (cancel_hdl, receive_file)) {
             hdl.cancel();
+            if let Some(file_path) = receive_file {
+                thread::yield_now();
+                let _ = fs::remove_file(file_path);
+            }
         }
     }
 
-    fn complete(&mut self, id: pbulong, resp: HttpResponseKind, elapsed: u128) {
+    fn complete(&mut self, id: pbulong, resp: HttpResponseKind, elapsed: u128, receive_file: Option<String>) {
         let is_cancelled = resp.is_cancelled();
         let is_succ = resp.is_succ();
-        let resp =
-            HttpResponse::new_object_modify(self.get_session(), |obj| obj.init(resp, elapsed, Some(id)))
-                .unwrap();
+        let resp = HttpResponse::new_object_modify(self.get_session(), |obj| {
+            obj.init(resp, elapsed, Some(id), receive_file)
+        })
+        .unwrap();
         let alive = self.get_alive_state();
         if !is_cancelled {
             if is_succ {
@@ -93,10 +98,14 @@ impl HttpClient {
     #[method(name = "Cancel")]
     fn cancel(&mut self, id: pbulong) -> RetCode {
         let mut pending = self.pending.lock().unwrap();
-        if let Some(hdl) = pending.remove(&id) {
+        if let Some((hdl, receive_file)) = pending.remove(&id) {
             drop(pending);
             if hdl.cancel() {
-                self.complete(id, HttpResponseKind::cancelled(), 0);
+                self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
+            }
+            if let Some(file_path) = receive_file {
+                thread::yield_now();
+                let _ = fs::remove_file(file_path);
             }
             RetCode::OK
         } else {

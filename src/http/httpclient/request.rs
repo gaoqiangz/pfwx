@@ -8,11 +8,14 @@ use reqwest::{
     header::{self, HeaderValue}, RequestBuilder
 };
 use std::{future::Future, time::Duration};
-use tokio::time::{self, Instant};
+use tokio::{
+    fs::File, io::AsyncWriteExt, time::{self, Instant}
+};
 
 #[derive(Default)]
 pub struct HttpRequest {
-    inner: Option<HttpRequestInner>
+    inner: Option<HttpRequestInner>,
+    recv_file_path: Option<String>
 }
 
 #[nonvisualobject(name = "nx_httprequest")]
@@ -96,24 +99,16 @@ impl HttpRequest {
     }
 
     #[method(name = "SetBody")]
-    fn json(&mut self, obj: Object) -> &mut Self {
+    fn json_or_xml(&mut self, obj: Object) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
+            let (data, content_type) = match obj.get_class_name().as_str() {
+                "n_json" => (pfw::json_serialize(&obj), "application/json; charset=utf-8"),
+                "n_xml" => (pfw::xml_serialize(&obj), "text/xml; charset=utf-8"),
+                cls @ _ => panic!("unexpect class {cls}")
+            };
             let builder = inner.builder.take().unwrap();
-            let mut builder = builder.body(pfw::json_serialize(&obj));
-            builder = builder
-                .header(header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
-            inner.builder.replace(builder);
-        }
-        self
-    }
-
-    #[method(name = "SetBody")]
-    fn xml(&mut self, obj: Object) -> &mut Self {
-        if let Some(inner) = self.inner.as_mut() {
-            let builder = inner.builder.take().unwrap();
-            let mut builder = builder.body(pfw::xml_serialize(&obj));
-            builder =
-                builder.header(header::CONTENT_TYPE, HeaderValue::from_static("text/xml; charset=utf-8"));
+            let mut builder = builder.body(data);
+            builder = builder.header(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
             inner.builder.replace(builder);
         }
         self
@@ -146,6 +141,12 @@ impl HttpRequest {
         self
     }
 
+    #[method(name = "SetReceiveFile")]
+    fn receive_file(&mut self, file_path: String) -> &mut Self {
+        self.recv_file_path = Some(file_path);
+        self
+    }
+
     #[method(name = "Send", overload = 1)]
     fn send(&mut self, hevent: Option<pbulong>) -> Result<Object> {
         if let Some(HttpRequestInner {
@@ -154,18 +155,44 @@ impl HttpRequest {
         }) = self.inner.take()
         {
             let client = client.get_native_ref::<HttpClient>().expect("httpclient invalid");
+            let recv_file_path = self.recv_file_path.clone();
             let sending = builder.unwrap().send();
             let (resp, elapsed) = client
                 .spawn_blocking(async move {
                     let inst = Instant::now();
                     let fut = async move {
                         match sending.await {
-                            Ok(resp) => {
+                            Ok(mut resp) => {
                                 let status = resp.status();
                                 let headers = resp.headers().clone();
-                                match resp.bytes().await {
-                                    Ok(data) => HttpResponseKind::received(status, headers, data),
-                                    Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                                if let Some(file_path) = recv_file_path {
+                                    match File::create(file_path).await {
+                                        Ok(mut file) => {
+                                            while let Some(chunk) = resp.chunk().await.transpose() {
+                                                match chunk {
+                                                    Ok(chunk) => {
+                                                        if let Err(e) = file.write_all(&chunk).await {
+                                                            return HttpResponseKind::receive_error(
+                                                                status, headers, e
+                                                            );
+                                                        }
+                                                    },
+                                                    Err(e) => {
+                                                        return HttpResponseKind::receive_error(
+                                                            status, headers, e
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            HttpResponseKind::received(status, headers, Default::default())
+                                        },
+                                        Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                                    }
+                                } else {
+                                    match resp.bytes().await {
+                                        Ok(data) => HttpResponseKind::received(status, headers, data),
+                                        Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                                    }
                                 }
                             },
                             Err(e) => HttpResponseKind::send_error(e)
@@ -183,10 +210,17 @@ impl HttpRequest {
                     (resp, inst.elapsed().as_millis())
                 })
                 .unwrap();
-            HttpResponse::new_object_modify(self.get_session(), |obj| obj.init(resp, elapsed, None))
+            HttpResponse::new_object_modify(self.get_session(), |obj| {
+                obj.init(resp, elapsed, None, self.recv_file_path.take())
+            })
         } else {
             HttpResponse::new_object_modify(self.get_session(), |obj| {
-                obj.init(HttpResponseKind::send_error("invalid request object"), 0, None)
+                obj.init(
+                    HttpResponseKind::send_error("invalid request object"),
+                    0,
+                    None,
+                    self.recv_file_path.take()
+                )
             })
         }
     }
@@ -199,6 +233,7 @@ impl HttpRequest {
         }) = self.inner.take()
         {
             let client = client.get_native_ref::<HttpClient>().expect("httpclient invalid");
+            let recv_file_path = self.recv_file_path.clone();
             //执行顺序锁
             let lock = if client.cfg.guarantee_order {
                 Some(client.seq_lock.clone())
@@ -206,9 +241,14 @@ impl HttpRequest {
                 None
             };
             let fut = if progress.unwrap_or_default() {
-                Either::Left(self.async_send_progress_impl(&client, builder.unwrap(), id))
+                Either::Left(self.async_send_progress_impl(
+                    &client,
+                    builder.unwrap(),
+                    id,
+                    recv_file_path.clone()
+                ))
             } else {
-                Either::Right(self.async_send_no_progress_impl(builder.unwrap()))
+                Either::Right(self.async_send_no_progress_impl(builder.unwrap(), recv_file_path.clone()))
             };
             let cancel_hdl = client.spawn(
                 async move {
@@ -221,11 +261,11 @@ impl HttpRequest {
                     let resp = fut.await;
                     (id, resp, inst.elapsed().as_millis())
                 },
-                |this, (id, resp, elapsed)| {
-                    this.complete(id, resp, elapsed);
+                move |this, (id, resp, elapsed)| {
+                    this.complete(id, resp, elapsed, recv_file_path);
                 }
             );
-            client.push_pending(id, cancel_hdl);
+            client.push_pending(id, cancel_hdl, self.recv_file_path.take());
             RetCode::OK
         } else {
             RetCode::E_INVALID_OBJECT
@@ -233,16 +273,41 @@ impl HttpRequest {
     }
 
     /// 异步请求实现
-    fn async_send_no_progress_impl(&self, builder: RequestBuilder) -> impl Future<Output = HttpResponseKind> {
+    fn async_send_no_progress_impl(
+        &mut self,
+        builder: RequestBuilder,
+        recv_file_path: Option<String>
+    ) -> impl Future<Output = HttpResponseKind> {
         let sending = builder.send();
         async move {
             match sending.await {
-                Ok(resp) => {
+                Ok(mut resp) => {
                     let status = resp.status();
                     let headers = resp.headers().clone();
-                    match resp.bytes().await {
-                        Ok(data) => HttpResponseKind::received(status, headers, data),
-                        Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                    if let Some(file_path) = recv_file_path {
+                        match File::create(file_path).await {
+                            Ok(mut file) => {
+                                while let Some(chunk) = resp.chunk().await.transpose() {
+                                    match chunk {
+                                        Ok(chunk) => {
+                                            if let Err(e) = file.write_all(&chunk).await {
+                                                return HttpResponseKind::receive_error(status, headers, e);
+                                            }
+                                        },
+                                        Err(e) => {
+                                            return HttpResponseKind::receive_error(status, headers, e);
+                                        }
+                                    }
+                                }
+                                HttpResponseKind::received(status, headers, Default::default())
+                            },
+                            Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                        }
+                    } else {
+                        match resp.bytes().await {
+                            Ok(data) => HttpResponseKind::received(status, headers, data),
+                            Err(e) => HttpResponseKind::receive_error(status, headers, e)
+                        }
                     }
                 },
                 Err(e) => HttpResponseKind::send_error(e)
@@ -252,10 +317,11 @@ impl HttpRequest {
 
     /// 带进度回调的异步请求实现
     fn async_send_progress_impl(
-        &self,
+        &mut self,
         client: &HttpClient,
         builder: RequestBuilder,
-        id: pbulong
+        id: pbulong,
+        recv_file_path: Option<String>
     ) -> impl Future<Output = HttpResponseKind> {
         let invoker = client.invoker();
         let sending = builder.send();
@@ -264,9 +330,23 @@ impl HttpRequest {
                 Ok(mut resp) => {
                     let status = resp.status();
                     let headers = resp.headers().clone();
+
+                    let mut file = if let Some(file_path) = recv_file_path {
+                        match File::create(file_path).await {
+                            Ok(file) => Some(file),
+                            Err(e) => return HttpResponseKind::receive_error(status, headers, e)
+                        }
+                    } else {
+                        None
+                    };
+
                     let total_size = resp.content_length().unwrap_or_default();
                     let mut recv_size = 0;
-                    let mut recv_data = BytesMut::with_capacity(total_size.max(256 * 1024) as usize);
+                    let mut recv_data = if file.is_some() {
+                        BytesMut::new()
+                    } else {
+                        BytesMut::with_capacity(total_size.max(1024 * 1024) as usize)
+                    };
 
                     //定时器（每秒计算一次速率并回调通知对象）
                     let mut tick_start = Instant::now();
@@ -290,7 +370,13 @@ impl HttpRequest {
                                 match chunk {
                                     Ok(Some(chunk)) => {
                                         recv_size += chunk.len();
-                                        recv_data.extend_from_slice(&chunk);
+                                        if let Some(file) = file.as_mut() {
+                                            if let Err(e) = file.write_all(&chunk).await {
+                                                break HttpResponseKind::receive_error(status, headers, e);
+                                            }
+                                        } else {
+                                            recv_data.extend_from_slice(&chunk);
+                                        }
                                     },
                                     Ok(None) => {
                                         if done_flag == DoneFlag::Pending {

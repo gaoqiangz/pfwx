@@ -3,9 +3,16 @@ use reqwest::multipart::{Form, Part};
 use std::fs::File as StdFile;
 use tokio::fs::File;
 
-#[derive(Default)]
 pub struct HttpMultipart {
     builder: Option<Form>
+}
+
+impl Default for HttpMultipart {
+    fn default() -> Self {
+        HttpMultipart {
+            builder: Some(Form::default())
+        }
+    }
 }
 
 #[nonvisualobject(name = "nx_httpmultipart")]

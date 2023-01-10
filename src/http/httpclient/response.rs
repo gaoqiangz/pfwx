@@ -10,15 +10,23 @@ use std::{borrow::Cow, fmt::Display};
 pub struct HttpResponse {
     inner: Option<HttpResponseKind>,
     elapsed: u128,
-    async_id: Option<pbulong>
+    async_id: Option<pbulong>,
+    receive_file: Option<String>
 }
 
 #[nonvisualobject(name = "nx_httpresponse")]
 impl HttpResponse {
-    pub fn init(&mut self, kind: HttpResponseKind, elapsed: u128, async_id: Option<pbulong>) {
+    pub fn init(
+        &mut self,
+        kind: HttpResponseKind,
+        elapsed: u128,
+        async_id: Option<pbulong>,
+        receive_file: Option<String>
+    ) {
         self.inner = Some(kind);
         self.elapsed = elapsed;
         self.async_id = async_id;
+        self.receive_file = receive_file;
     }
 
     fn status(&self) -> Option<StatusCode> {
