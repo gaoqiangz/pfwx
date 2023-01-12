@@ -5,7 +5,7 @@ use pbni::{
 use std::{
     cell::RefCell, mem, panic::{self, AssertUnwindSafe}, rc::Rc, sync::{
         atomic::{AtomicUsize, Ordering}, Mutex
-    }
+    }, thread
 };
 use tokio::{sync::oneshot, time};
 use windows::{
@@ -232,7 +232,102 @@ impl Dispatcher {
 
     /// 派发消息给UI线程
     async fn dispatch(&self, payload: MessagePayload) -> bool {
-        use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageA};
+        use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(payload) {
+            //等待消息被接收
+            loop {
+                tokio::select! {
+                    _ = &mut rx => return true,
+                    _ = time::sleep(time::Duration::from_millis(100)) => {
+                        unsafe {
+                            if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false {
+                                //需要再次检查信号，避免目标销毁前接收了消息
+                                if rx.try_recv().is_ok() {
+                                    return true;
+                                }
+                                //窗口已经被销毁，需要释放内存
+                                let msg_pack = msg_pack.unpack();
+                                if let MessagePayload::Invoke(payload) = msg_pack.payload {
+                                    (payload.handler)(payload.param, false);
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    /// 阻塞派发回调请求给UI线程执行
+    ///
+    /// # Description
+    ///
+    /// 在非异步上下文中使用
+    pub(super) fn blocking_dispatch_invoke(
+        &self,
+        param: UnsafeBox<()>,
+        handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
+        alive: AliveState
+    ) -> bool {
+        self.blocking_dispatch(MessagePayload::Invoke(PayloadInvoke {
+            param,
+            handler,
+            alive
+        }))
+    }
+
+    /// 阻塞派发异常信息给UI线程
+    ///
+    /// # Description
+    ///
+    /// 在非异步上下文中使用
+    pub(super) fn blocking_dispatch_panic(&self, info: String) -> bool {
+        self.blocking_dispatch(MessagePayload::Panic(PayloadPanic {
+            info
+        }))
+    }
+
+    /// 阻塞派发消息给UI线程
+    ///
+    /// # Description
+    ///
+    /// 在非异步上下文中使用
+    fn blocking_dispatch(&self, payload: MessagePayload) -> bool {
+        use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(payload) {
+            //等待消息被接收
+            loop {
+                if rx.try_recv().is_ok() {
+                    return true;
+                }
+                unsafe {
+                    if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false
+                    {
+                        //窗口已经被销毁，需要释放内存
+                        let msg_pack = msg_pack.unpack();
+                        if let MessagePayload::Invoke(payload) = msg_pack.payload {
+                            (payload.handler)(payload.param, false);
+                        }
+                        return false;
+                    }
+                }
+                thread::sleep(time::Duration::from_millis(100));
+            }
+        } else {
+            false
+        }
+    }
+
+    fn post_message(
+        &self,
+        payload: MessagePayload
+    ) -> Option<(oneshot::Receiver<()>, Option<AliveState>, UnsafeBox<MessagePack>)> {
+        use windows::Win32::UI::WindowsAndMessaging::PostMessageA;
 
         let alive = if let MessagePayload::Invoke(payload) = &payload {
             Some(payload.alive.clone())
@@ -241,7 +336,7 @@ impl Dispatcher {
         };
 
         //参数打包
-        let (tx, mut rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
         let msg_pack = UnsafeBox::pack(MessagePack {
             payload,
             tx
@@ -255,28 +350,10 @@ impl Dispatcher {
                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
                     (payload.handler)(payload.param, false);
                 }
-                return false;
-            }
-            //等待消息被接收
-            loop {
-                tokio::select! {
-                    _ = &mut rx => return true,
-                    _ = time::sleep(time::Duration::from_millis(100)) => {
-                        if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false {
-                            //需要再次检查信号，避免目标销毁前接收了消息
-                            if rx.try_recv().is_ok() {
-                                return true;
-                            }
-                            //窗口已经被销毁，需要释放内存
-                            let msg_pack = msg_pack.unpack();
-                            if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                                (payload.handler)(payload.param, false);
-                            }
-                            return false;
-                        }
-                    }
-                }
+                return None;
             }
         }
+
+        Some((rx, alive, msg_pack))
     }
 }

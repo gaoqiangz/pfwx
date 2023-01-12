@@ -4,7 +4,7 @@ use super::{
 use futures_util::FutureExt;
 use pbni::pbx::{AliveState, Session};
 use std::{
-    cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, rc::{Rc, Weak}
+    cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, rc::{Rc, Weak}, thread, thread::ThreadId
 };
 use tokio::sync::oneshot;
 
@@ -97,7 +97,7 @@ pub trait Handler: Sized + 'static {
         cancel_hdl
     }
 
-    /// 启动一个异步任务并阻塞执行
+    /// 阻塞启动一个异步任务
     ///
     /// # Parameters
     ///
@@ -110,7 +110,7 @@ pub trait Handler: Sized + 'static {
     /// # Returns
     ///
     /// `fut` 任务的执行结果
-    fn spawn_blocking<F, R>(&self, fut: F) -> Result<R, SpawnBlockingError>
+    fn blocking_spawn<F, R>(&self, fut: F) -> Result<R, SpawnBlockingError>
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static
@@ -265,7 +265,8 @@ impl CancelHandle {
 pub struct HandlerInvoker<T> {
     this: UnsafePointer<T>,
     alive: AliveState,
-    dsp: Dispatcher
+    dsp: Dispatcher,
+    thread_id: ThreadId
 }
 
 impl<T: Handler> HandlerInvoker<T> {
@@ -275,7 +276,8 @@ impl<T: Handler> HandlerInvoker<T> {
         HandlerInvoker {
             this: unsafe { UnsafePointer::from_raw(this as *const T as *mut T) },
             alive: this.alive_state(),
-            dsp: sync_ctx.dispatcher()
+            dsp: sync_ctx.dispatcher(),
+            thread_id: thread::current().id()
         }
     }
 
@@ -295,6 +297,7 @@ impl<T: Handler> HandlerInvoker<T> {
         H: FnOnce(&mut T, P) -> R + Send + 'static,
         R: Send + 'static
     {
+        assert_ne!(self.thread_id, thread::current().id());
         if self.alive.is_dead() {
             return Err(InvokeError::TargetIsDead);
         }
@@ -327,11 +330,77 @@ impl<T: Handler> HandlerInvoker<T> {
         }
     }
 
+    /// 阻塞发起回调请求给UI线程执行
+    ///
+    /// # Description
+    ///
+    /// 在非异步上下文中使用
+    ///
+    /// # Parameters
+    ///
+    /// - `param` 参数
+    /// - `handler` 接收`param`参数的回调过程并在UI线程中执行
+    ///
+    /// # Returns
+    ///
+    /// 成功返回`handler`返回值
+    pub fn blocking_invoke<P, H, R>(&self, param: P, handler: H) -> Result<R, InvokeError>
+    where
+        P: Send + 'static,
+        H: FnOnce(&mut T, P) -> R + Send + 'static,
+        R: Send + 'static
+    {
+        assert_ne!(self.thread_id, thread::current().id());
+        if self.alive.is_dead() {
+            return Err(InvokeError::TargetIsDead);
+        }
+        let (tx, rx) = oneshot::channel();
+        let handler = unsafe {
+            let this = self.this.clone();
+            Box::new(move |param: UnsafeBox<()>, invoke: bool| {
+                let param = param.cast::<P>().unpack();
+                let rv = if invoke {
+                    let this = &mut *this.into_raw();
+                    Some(handler(this, param))
+                } else {
+                    None
+                };
+                //异步任务可能被取消
+                let _ = tx.send(rv);
+            })
+        };
+        let param = UnsafeBox::pack(param).cast::<()>();
+        if !self.dsp.blocking_dispatch_invoke(param, handler, self.alive.clone()) {
+            return Err(InvokeError::TargetIsDead);
+        }
+        match rx.blocking_recv() {
+            Ok(Some(rv)) => Ok(rv),
+            Ok(None) => Err(InvokeError::TargetIsDead),
+            Err(_) => {
+                //回调过程发生异常导致`tx`被提前销毁
+                Err(InvokeError::Panic)
+            }
+        }
+    }
+
     /// 派发执行异常信息给UI线程
     async fn panic(&self, panic_info: &str) -> bool {
         self.dsp
             .dispatch_panic(format!("{}\r\nbacktrace:\r\n{:?}", panic_info, backtrace::Backtrace::new()))
             .await
+    }
+
+    /// 阻塞派发执行异常信息给UI线程
+    ///
+    /// # Description
+    ///
+    /// 在非异步上下文中使用
+    fn blocking_panic(&self, panic_info: &str) -> bool {
+        self.dsp.blocking_dispatch_panic(format!(
+            "{}\r\nbacktrace:\r\n{:?}",
+            panic_info,
+            backtrace::Backtrace::new()
+        ))
     }
 }
 
@@ -340,7 +409,8 @@ impl<T> Clone for HandlerInvoker<T> {
         HandlerInvoker {
             this: self.this.clone(),
             alive: self.alive.clone(),
-            dsp: self.dsp.clone()
+            dsp: self.dsp.clone(),
+            thread_id: self.thread_id.clone()
         }
     }
 }
