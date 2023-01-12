@@ -85,10 +85,10 @@ impl HttpRequest {
     }
 
     #[method(name = "SetBody", overload = 1)]
-    fn binary(&mut self, data: Vec<u8>, content_type: Option<String>) -> &mut Self {
+    fn binary(&mut self, data: &[u8], content_type: Option<String>) -> &mut Self {
         if let Some(inner) = self.inner.as_mut() {
             let builder = inner.builder.take().unwrap();
-            let mut builder = builder.body(data);
+            let mut builder = builder.body(data.to_owned());
             builder = builder.header(
                 header::CONTENT_TYPE,
                 content_type.unwrap_or_else(|| mime::APPLICATION_OCTET_STREAM.to_string())
@@ -158,7 +158,7 @@ impl HttpRequest {
             let recv_file_path = self.recv_file_path.clone();
             let sending = builder.unwrap().send();
             let (resp, elapsed) = client
-                .spawn_blocking(async move {
+                .blocking_spawn(async move {
                     let inst = Instant::now();
                     let fut = async move {
                         match sending.await {

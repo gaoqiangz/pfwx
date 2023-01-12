@@ -36,9 +36,9 @@ impl HttpMultipart {
     }
 
     #[method(name = "AddField", overload = 1)]
-    fn binary(&mut self, name: String, val: Vec<u8>, mime: Option<String>) -> &mut Self {
+    fn binary(&mut self, name: String, val: &[u8], mime: Option<String>) -> &mut Self {
         let len = val.len();
-        let mut part = Part::stream_with_length(val, len as u64);
+        let mut part = Part::stream_with_length(val.to_owned(), len as u64);
         if let Some(mime) = mime {
             part = part.mime_str(mime.as_str()).expect("invalid mime");
         }

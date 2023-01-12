@@ -29,6 +29,9 @@ reqwest = { version = "0.11.13", features = ["native-tls-vendored", "trust-dns",
 mime = { version = "0.3.16", optional = true }
 encoding = { version = "0.2.33", optional = true }
 
+# mqtt
+paho-mqtt = { version = "0.11.1", optional = true }
+
 # parser
 dwparser = { version = "0.1.0", features = ["full"], optional = true }
 serde_json = { version = "1.0.91", optional = true }
@@ -38,11 +41,12 @@ winres = "0.1.12"
 
 [features]
 default = ["full"]
-full = ["http", "parser"]
+full = ["http", "mqtt", "parser"]
 
 parser = ["dwparser", "serde_json"]
 http = ["reactor", "reqwest", "mime", "encoding"]
 reactor = ["tokio", "futures-util", "windows", "backtrace"]
+mqtt = ["reactor", "paho-mqtt"]
 
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }

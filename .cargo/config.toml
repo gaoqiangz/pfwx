@@ -3,3 +3,9 @@ target = "i686-pc-windows-msvc"
 
 [target.i686-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[env]
+i686_PC_WINDOWS_MSVC_OPENSSL_STATIC = { value = "1", force = true }
+i686_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/include", force = true }
+i686_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/lib/VC/static", force = true }
+i686_PC_WINDOWS_MSVC_OPENSSL_LIBS = { value = "libcrypto32MT:libssl32MT", force = true }
