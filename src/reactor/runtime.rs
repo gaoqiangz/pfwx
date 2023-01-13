@@ -72,6 +72,9 @@ impl Runtime {
                 //运行
                 rt.block_on(local.run_until(runloop));
                 rt.block_on(local);
+                //NOTE
+                //运行时可能创建了`blocking`后台线程，此处需要立即退出并且不等待线程结束信号
+                rt.shutdown_background();
                 //退出信号
                 stop_tx.send(()).unwrap();
             })
@@ -91,6 +94,6 @@ impl Drop for Runtime {
         self.stop_rx.take().unwrap().blocking_recv().unwrap();
         //FIXME
         //短暂挂起使线程调用栈完全退出
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(200));
     }
 }
