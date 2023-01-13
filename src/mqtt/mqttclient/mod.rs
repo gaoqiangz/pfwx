@@ -6,12 +6,16 @@ use pbni::{pbx::*, prelude::*};
 use reactor::*;
 
 mod config;
+mod message;
 
 use config::MqttConfig;
 
+use self::message::MqttMessage;
+
 struct MqttClient {
     state: HandlerState,
-    client: Option<AsyncClient>
+    client: Option<AsyncClient>,
+    has_connected: bool
 }
 
 #[nonvisualobject(name = "nx_mqttclient")]
@@ -20,7 +24,8 @@ impl MqttClient {
     fn new(session: Session, _object: Object) -> Self {
         MqttClient {
             state: HandlerState::new(session),
-            client: None
+            client: None,
+            has_connected: false
         }
     }
 
@@ -59,15 +64,45 @@ impl MqttClient {
         client.set_connected_callback({
             let invoker = invoker.clone();
             move |_| {
-                let _ = invoker.blocking_invoke((false, false), |this, (reconnect, session_present)| {
-                    this.on_open(reconnect, session_present);
+                let _ = invoker.invoke_blocking((), |this, _| {
+                    let is_reconnect = if !this.has_connected {
+                        this.has_connected = true;
+                        false
+                    } else {
+                        true
+                    };
+                    this.on_open(is_reconnect);
                 });
             }
         });
-        client.set_disconnected_callback(move |_, props, reason| {
-            let _ = invoker.blocking_invoke((0, String::new()), |this, (code, info)| {
-                this.on_close(code, info);
-            });
+        client.set_disconnected_callback({
+            let invoker = invoker.clone();
+            move |_, _, reason| {
+                let _ =
+                    invoker.invoke_blocking((reason as pblong, reason.to_string()), |this, (code, info)| {
+                        this.on_close(code, info);
+                    });
+            }
+        });
+        client.set_connection_lost_callback({
+            let invoker = invoker.clone();
+            move |_| {
+                let _ = invoker.invoke_blocking((-1, "lost".to_owned()), |this, (code, info)| {
+                    this.on_close(code, info);
+                });
+            }
+        });
+        client.set_message_callback({
+            let invoker = invoker.clone();
+            move |_, msg| {
+                if let Some(msg) = msg {
+                    let _ = invoker.invoke_blocking(msg, |this, msg| {
+                        let obj =
+                            MqttMessage::new_object_modify(this.get_session(), |obj| obj.init(msg)).unwrap();
+                        this.on_message(obj);
+                    });
+                }
+            }
         });
         client.connect(conn_cfg);
         self.client = Some(client);
@@ -80,6 +115,7 @@ impl MqttClient {
         if let Some(client) = self.client.take() {
             client.disconnect(None);
         }
+        self.has_connected = false;
         RetCode::OK
     }
 
@@ -166,7 +202,7 @@ impl MqttClient {
         }
     }
 
-    #[method(name = "Subscribe", overload = 2)]
+    #[method(name = "Subscribe", overload = 1)]
     fn subscribe(&mut self, topic_filter: String, qos: Option<pblong>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             self.watch_subscribe(
@@ -179,10 +215,30 @@ impl MqttClient {
         }
     }
 
-    #[method(name = "Subscribe", overload = 2)]
+    #[method(name = "Subscribe", overload = 1)]
     fn subscribe_many(&mut self, topic_filters: Vec<String>, qos: Option<Vec<pblong>>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             client.subscribe_many(&topic_filters, &qos.unwrap_or_default());
+            RetCode::OK
+        } else {
+            RetCode::E_INVALID_HANDLE
+        }
+    }
+
+    #[method(name = "Unsubscribe")]
+    fn unsubscribe(&mut self, topic_filter: String) -> RetCode {
+        if let Some(client) = self.client.as_ref() {
+            client.unsubscribe(topic_filter);
+            RetCode::OK
+        } else {
+            RetCode::E_INVALID_HANDLE
+        }
+    }
+
+    #[method(name = "Unsubscribe")]
+    fn unsubscribe_many(&mut self, topic_filters: Vec<String>) -> RetCode {
+        if let Some(client) = self.client.as_ref() {
+            client.unsubscribe_many(&topic_filters);
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -197,21 +253,17 @@ impl MqttClient {
         self.spawn(async move { token.await }, |this, rv| {});
     }
 
-    fn on_open(&mut self, reconnect: bool, session_present: bool) {
-        let mut obj = self.get_object();
-        let invoker = obj.begin_invoke_event("OnOpen").unwrap();
-        invoker.arg(0).set_bool(reconnect);
-        invoker.arg(1).set_bool(session_present);
-        invoker.trigger().unwrap();
-    }
+    #[event(name = "OnOpen")]
+    fn on_open(&mut self, reconnect: bool) {}
 
-    fn on_close(&mut self, code: pblong, info: String) {
-        let mut obj = self.get_object();
-        let invoker = obj.begin_invoke_event("OnClose").unwrap();
-        invoker.arg(0).set_long(code);
-        invoker.arg(1).set_str(info);
-        invoker.trigger().unwrap();
-    }
+    #[event(name = "OnClose")]
+    fn on_close(&mut self, code: pblong, info: String) {}
+
+    #[event(name = "OnError")]
+    fn on_error(&mut self, code: pblong, info: String) {}
+
+    #[event(name = "OnMessage")]
+    fn on_message(&mut self, msg: Object) {}
 }
 
 impl Handler for MqttClient {

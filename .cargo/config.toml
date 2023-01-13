@@ -9,3 +9,7 @@ i686_PC_WINDOWS_MSVC_OPENSSL_STATIC = { value = "1", force = true }
 i686_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/include", force = true }
 i686_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/lib/VC/static", force = true }
 i686_PC_WINDOWS_MSVC_OPENSSL_LIBS = { value = "libcrypto32MT:libssl32MT", force = true }
+x86_64_PC_WINDOWS_MSVC_OPENSSL_STATIC = { value = "1", force = true }
+x86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR = { value = "C:/Program Files/OpenSSL-Win64/include", force = true }
+x86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR = { value = "C:/Program Files/OpenSSL-Win64/lib/VC/static", force = true }
+x86_64_PC_WINDOWS_MSVC_OPENSSL_LIBS = { value = "libcrypto64MT:libssl64MT", force = true }
