@@ -246,7 +246,7 @@ impl Dispatcher {
                                 if rx.try_recv().is_ok() {
                                     return true;
                                 }
-                                //窗口已经被销毁，需要释放内存
+                                //接收目标被销毁，需要释放内存
                                 let msg_pack = msg_pack.unpack();
                                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
                                     (payload.handler)(payload.param, false);
@@ -267,13 +267,13 @@ impl Dispatcher {
     /// # Description
     ///
     /// 在非异步上下文中使用
-    pub(super) fn blocking_dispatch_invoke(
+    pub(super) fn dispatch_invoke_blocking(
         &self,
         param: UnsafeBox<()>,
         handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
         alive: AliveState
     ) -> bool {
-        self.blocking_dispatch(MessagePayload::Invoke(PayloadInvoke {
+        self.dispatch_blocking(MessagePayload::Invoke(PayloadInvoke {
             param,
             handler,
             alive
@@ -285,8 +285,8 @@ impl Dispatcher {
     /// # Description
     ///
     /// 在非异步上下文中使用
-    pub(super) fn blocking_dispatch_panic(&self, info: String) -> bool {
-        self.blocking_dispatch(MessagePayload::Panic(PayloadPanic {
+    pub(super) fn dispatch_panic_blocking(&self, info: String) -> bool {
+        self.dispatch_blocking(MessagePayload::Panic(PayloadPanic {
             info
         }))
     }
@@ -296,7 +296,7 @@ impl Dispatcher {
     /// # Description
     ///
     /// 在非异步上下文中使用
-    fn blocking_dispatch(&self, payload: MessagePayload) -> bool {
+    fn dispatch_blocking(&self, payload: MessagePayload) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
         if let Some((mut rx, alive, msg_pack)) = self.post_message(payload) {
@@ -308,7 +308,7 @@ impl Dispatcher {
                 unsafe {
                     if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false
                     {
-                        //窗口已经被销毁，需要释放内存
+                        //接收目标被销毁，需要释放内存
                         let msg_pack = msg_pack.unpack();
                         if let MessagePayload::Invoke(payload) = msg_pack.payload {
                             (payload.handler)(payload.param, false);
@@ -323,6 +323,7 @@ impl Dispatcher {
         }
     }
 
+    /// 派发消息
     fn post_message(
         &self,
         payload: MessagePayload
@@ -343,7 +344,6 @@ impl Dispatcher {
         });
 
         unsafe {
-            //派发消息
             if PostMessageA(self.hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) == false {
                 //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
                 let msg_pack = msg_pack.unpack();
