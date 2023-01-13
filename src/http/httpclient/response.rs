@@ -170,28 +170,27 @@ impl HttpResponse {
     #[method(name = "GetElapsed")]
     fn elapsed(&self) -> pbulong { self.elapsed as pbulong }
 
+    #[method(name = "GetReceiveFile")]
+    fn receive_file(&self) -> &str { self.receive_file.as_ref().map(|v| v.as_str()).unwrap_or_default() }
+
     #[method(name = "GetHeader")]
-    fn header(&self, key: String) -> String {
-        self.headers()
-            .and_then(|headers| headers.get(key))
-            .and_then(|v| v.to_str().ok())
-            .map(|v| v.to_owned())
-            .unwrap_or_default()
+    fn header(&self, key: String) -> &str {
+        self.headers().and_then(|headers| headers.get(key)).and_then(|v| v.to_str().ok()).unwrap_or_default()
     }
+
     #[method(name = "GetHeader")]
-    fn header_by_index(&self, index: pbint) -> String {
+    fn header_by_index(&self, index: pbint) -> &str {
         self.headers()
             .and_then(|headers| headers.values().nth((index - 1) as usize))
             .and_then(|v| v.to_str().ok())
-            .map(|v| v.to_owned())
             .unwrap_or_default()
     }
 
     #[method(name = "GetHeaderName")]
-    fn header_name_by_index(&self, index: pbint) -> String {
+    fn header_name_by_index(&self, index: pbint) -> &str {
         self.headers()
             .and_then(|headers| headers.keys().nth((index - 1) as usize))
-            .map(|v| v.to_string())
+            .map(|v| v.as_str())
             .unwrap_or_default()
     }
 
@@ -215,10 +214,10 @@ impl HttpResponse {
     }
 
     #[method(name = "GetCharset")]
-    fn charset_serialize(&self) -> String {
+    fn charset_serialize(&self) -> &str {
         self.content_type()
             .and_then(|content_type| content_type.get_param("charset"))
-            .map(|v| v.to_string())
+            .map(|v| v.as_str())
             .unwrap_or_default()
     }
 
@@ -228,7 +227,7 @@ impl HttpResponse {
     }
 
     #[method(name = "GetErrorInfo")]
-    fn error_info(&self) -> String { self.error().map(String::from).unwrap_or_default() }
+    fn error_info(&self) -> &str { self.error().unwrap_or_default() }
 
     #[method(name = "GetData")]
     fn data_blob(&self) -> &[u8] { self.data().map(Bytes::as_ref).unwrap_or_default() }

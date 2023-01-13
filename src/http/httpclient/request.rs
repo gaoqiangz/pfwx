@@ -3,7 +3,7 @@ use super::{
 };
 use crate::base::pfw;
 use bytes::BytesMut;
-use futures_util::future::{self, Either};
+use futures_util::future::{self, Either, FutureExt};
 use reqwest::{
     header::{self, HeaderValue}, RequestBuilder
 };
@@ -158,7 +158,7 @@ impl HttpRequest {
             let recv_file_path = self.recv_file_path.clone();
             let sending = builder.unwrap().send();
             let (resp, elapsed) = client
-                .blocking_spawn(async move {
+                .spawn_blocking(async move {
                     let inst = Instant::now();
                     let fut = async move {
                         match sending.await {
@@ -400,14 +400,27 @@ impl HttpRequest {
                                 //UI线程阻塞时截流，丢弃中间的速率
                                 if matches!(tick_invoke, Either::Left(_)) {
                                     tick_invoke = Either::Right(
-                                        Box::pin(
-                                            invoker.invoke(
+                                        invoker
+                                            .invoke(
                                                 (id, total_size, recv_size, speed),
                                                 |this, (id, total_size, recv_size, speed)| {
-                                                    this.on_recv(id, total_size as pbulong, recv_size as pbulong, speed as pbulong)
+                                                    this.on_recv(
+                                                        id,
+                                                        total_size as pbulong,
+                                                        recv_size as pbulong,
+                                                        speed as pbulong
+                                                    )
                                                 }
                                             )
-                                        )
+                                            .then(|rv| {
+                                                async {
+                                                    match rv {
+                                                        Ok(handle) => handle.await,
+                                                        Err(e) => Err(e)
+                                                    }
+                                                }
+                                            })
+                                            .boxed()
                                     );
                                     if done_flag == DoneFlag::Invoke {
                                         done_flag = DoneFlag::Invoking;
