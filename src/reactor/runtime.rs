@@ -16,6 +16,9 @@ where
     }
 }
 
+/// 销毁后台运行时
+pub fn shutdown() { Runtime::drop_global(); }
+
 /// 运行时消息
 enum RuntimeMessage {
     Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
@@ -39,7 +42,7 @@ impl Runtime {
     }
 
     /// 销毁运行时
-    pub fn drop_global() {
+    fn drop_global() {
         let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
         *runtime = None;
     }
