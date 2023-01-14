@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 #![allow(dead_code)]
 #![feature(try_trait_v2)]
 
@@ -13,5 +14,7 @@ mod mqtt;
 mod parser;
 
 mod prelude {
-    pub(crate) use super::{base::retcode::RetCode, reactor};
+    pub(crate) use super::base::retcode::RetCode;
+    #[cfg(feature = "reactor")]
+    pub(crate) use super::reactor;
 }
