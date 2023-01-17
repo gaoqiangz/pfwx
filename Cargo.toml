@@ -33,7 +33,7 @@ encoding = { version = "0.2.33", optional = true }
 paho-mqtt = { version = "0.11.1", optional = true }
 
 # parser
-dwparser = { version = "0.1.0", features = ["full"], optional = true }
+dwparser = { version = "0.1.2", features = ["full"], optional = true }
 serde_json = { version = "1.0.91", optional = true }
 
 [build-dependencies]
@@ -51,7 +51,6 @@ mqtt = ["reactor", "paho-mqtt"]
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
 pbni-codegen = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
-dwparser = { git = "https://github.com/gaoqiangz/dwparser.git" }
 
 # 正式发布时使用最优化编译模式，减少二进制大小
 

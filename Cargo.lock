@@ -422,8 +422,9 @@ checksum = "23d8666cb01533c39dde32bcbab8e227b4ed6679b2c925eba05feabea39508fb"
 
 [[package]]
 name = "dwparser"
-version = "0.1.0"
-source = "git+https://github.com/gaoqiangz/dwparser.git#eae755fd080760d2e30378caef0e6a50f31759c9"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd23407ed2bf89e72b6b18042bc5d497efbbda672a51c743730c12e709e8467c"
 dependencies = [
  "indexmap",
  "nom",
