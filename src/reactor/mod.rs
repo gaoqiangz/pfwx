@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 mod context;
-mod runtime;
+pub mod runtime;
 mod handler;
 mod event;
 mod mem;
