@@ -1,4 +1,4 @@
-use super::{runtime, UnsafeBox};
+use super::{mem::UnsafeBox, runtime};
 use pbni::{
     pbx::{AliveState, Session}, pbx_throw
 };
@@ -208,7 +208,7 @@ pub struct Dispatcher {
 
 impl Dispatcher {
     /// 派发回调请求给UI线程执行
-    pub(super) async fn dispatch_invoke(
+    pub async fn dispatch_invoke(
         &self,
         param: UnsafeBox<()>,
         handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
@@ -223,7 +223,7 @@ impl Dispatcher {
     }
 
     /// 派发异常信息给UI线程
-    pub(super) async fn dispatch_panic(&self, info: String) -> bool {
+    pub async fn dispatch_panic(&self, info: String) -> bool {
         self.dispatch(MessagePayload::Panic(PayloadPanic {
             info
         }))
@@ -267,7 +267,7 @@ impl Dispatcher {
     /// # Description
     ///
     /// 在非异步上下文中使用
-    pub(super) fn dispatch_invoke_blocking(
+    pub fn dispatch_invoke_blocking(
         &self,
         param: UnsafeBox<()>,
         handler: Box<dyn FnOnce(UnsafeBox<()>, bool) + Send + 'static>,
@@ -285,7 +285,7 @@ impl Dispatcher {
     /// # Description
     ///
     /// 在非异步上下文中使用
-    pub(super) fn dispatch_panic_blocking(&self, info: String) -> bool {
+    pub fn dispatch_panic_blocking(&self, info: String) -> bool {
         self.dispatch_blocking(MessagePayload::Panic(PayloadPanic {
             info
         }))
