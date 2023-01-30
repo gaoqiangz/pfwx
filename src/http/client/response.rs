@@ -231,7 +231,7 @@ impl HttpResponse {
     fn error_info(&self) -> &str { self.error().unwrap_or_default() }
 
     #[method(name = "GetData")]
-    fn data_blob(&self) -> &[u8] { self.data().map(Bytes::as_ref).unwrap_or_default() }
+    fn data_binay(&self) -> &[u8] { self.data().map(Bytes::as_ref).unwrap_or_default() }
 
     #[method(name = "GetDataString", overload = 1)]
     fn data_string(&self, encoding: Option<pblong>) -> Cow<'_, str> {
