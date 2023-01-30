@@ -40,11 +40,7 @@ impl SyncContext {
     }
 
     /// 消息派发器
-    pub fn dispatcher(&self) -> Dispatcher {
-        Dispatcher {
-            hwnd: self.inner.hwnd
-        }
-    }
+    pub fn dispatcher(&self) -> Dispatcher { Dispatcher::new(self.inner.hwnd) }
 
     //创建UI线程同步上下文
     fn new(pbsession: Session) -> SyncContext {
@@ -207,6 +203,12 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
+    fn new(hwnd: HWND) -> Dispatcher {
+        Dispatcher {
+            hwnd
+        }
+    }
+
     /// 派发回调请求给UI线程执行
     pub async fn dispatch_invoke(
         &self,
