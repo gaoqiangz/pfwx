@@ -103,7 +103,7 @@ impl HttpRequest {
         if let Some(inner) = self.inner.as_mut() {
             let (data, content_type) = match obj.get_class_name().as_str() {
                 "n_json" => (pfw::json_serialize(&obj), "application/json; charset=utf-8"),
-                "n_xml" => (pfw::xml_serialize(&obj), "text/xml; charset=utf-8"),
+                "n_xmldoc" => (pfw::xml_serialize(&obj), "text/xml; charset=utf-8"),
                 cls @ _ => panic!("unexpect class {cls}")
             };
             let builder = inner.builder.take().unwrap();

@@ -1,4 +1,5 @@
 use super::*;
+use crate::base::{conv, pfw};
 use bytes::Bytes;
 use mime::Mime;
 use reqwest::{
@@ -235,26 +236,60 @@ impl HttpResponse {
     #[method(name = "GetDataString", overload = 1)]
     fn data_string(&self, encoding: Option<pblong>) -> Cow<'_, str> {
         if let Some(data) = self.data() {
-            let codec = match encoding {
-                Some(code) => {
-                    encoding::label::encoding_from_windows_code_page(encoding_conv::conv_codepage(code))
-                },
+            match encoding {
+                Some(encoding) => conv::decode(&data, encoding),
                 None => {
-                    self.content_type()
+                    let charset = self
+                        .content_type()
                         .and_then(|content_type| content_type.get_param("charset"))
-                        .and_then(|charset| encoding::label::encoding_from_whatwg_label(charset.as_str()))
-                },
-            };
-            //NOTE 默认`utf-8`
-            let codec = codec.unwrap_or(encoding::all::UTF_8);
-            if codec.name() == "utf-8" {
-                String::from_utf8_lossy(&data)
-            } else {
-                codec.decode(&data, encoding::DecoderTrap::Replace).map(Cow::from).unwrap_or_default()
+                        .map(|charset| charset.as_str())
+                        .unwrap_or_default();
+                    conv::decode_by_charset(&data, charset)
+                }
             }
         } else {
             "".into()
         }
+    }
+
+    #[method(name = "GetDataJSON", overload = 1)]
+    fn data_json(&self, encoding: Option<pblong>) -> Object {
+        let data = if let Some(data) = self.data() {
+            match encoding {
+                Some(encoding) => conv::decode(&data, encoding),
+                None => {
+                    let charset = self
+                        .content_type()
+                        .and_then(|content_type| content_type.get_param("charset"))
+                        .map(|charset| charset.as_str())
+                        .unwrap_or_default();
+                    conv::decode_by_charset(&data, charset)
+                }
+            }
+        } else {
+            "".into()
+        };
+        pfw::json_parse(self.get_session(), &data)
+    }
+
+    #[method(name = "GetDataXML", overload = 1)]
+    fn data_xml(&self, encoding: Option<pblong>) -> Object {
+        let data = if let Some(data) = self.data() {
+            match encoding {
+                Some(encoding) => conv::decode(&data, encoding),
+                None => {
+                    let charset = self
+                        .content_type()
+                        .and_then(|content_type| content_type.get_param("charset"))
+                        .map(|charset| charset.as_str())
+                        .unwrap_or_default();
+                    conv::decode_by_charset(&data, charset)
+                }
+            }
+        } else {
+            "".into()
+        };
+        pfw::xml_parse(self.get_session(), &data)
     }
 }
 
@@ -315,45 +350,4 @@ impl HttpResponseKind {
     }
 
     pub fn cancelled() -> HttpResponseKind { HttpResponseKind::Cancelled }
-}
-
-mod encoding_conv {
-    use pbni::primitive::pblong;
-
-    const ENCODING_UNKNOWN: pblong = 0;
-    const ENCODING_UTF8: pblong = 1;
-    const ENCODING_UTF16: pblong = 2;
-    const ENCODING_UTF16LE: pblong = 2;
-    const ENCODING_UTF16BE: pblong = 3;
-    const ENCODING_ANSI: pblong = 4;
-    const ENCODING_GB2312: pblong = 5;
-    const ENCODING_GBK: pblong = 5;
-    const ENCODING_GB18030: pblong = 6;
-    const ENCODING_BIG5: pblong = 7;
-    const ENCODING_ISO88591: pblong = 8;
-    const ENCODING_LATIN1: pblong = 8;
-    const ENCODING_ISO88592: pblong = 9;
-    const ENCODING_LATIN2: pblong = 9;
-    const ENCODING_ISO88593: pblong = 10;
-    const ENCODING_LATIN3: pblong = 10;
-    const ENCODING_ISO2022JP: pblong = 11;
-    const ENCODING_ISO2022KR: pblong = 12;
-
-    pub fn conv_codepage(encoding: pblong) -> usize {
-        match encoding {
-            ENCODING_ANSI => 0,
-            ENCODING_UTF8 => 65001,
-            ENCODING_UTF16LE => 1200,
-            ENCODING_UTF16BE => 1201,
-            ENCODING_GB2312 => 936,
-            ENCODING_GB18030 => 54936,
-            ENCODING_BIG5 => 950,
-            ENCODING_ISO88591 => 28591,
-            ENCODING_ISO88592 => 28592,
-            ENCODING_ISO88593 => 28593,
-            ENCODING_ISO2022JP => 50220,
-            ENCODING_ISO2022KR => 50225,
-            _ => 0
-        }
-    }
 }
