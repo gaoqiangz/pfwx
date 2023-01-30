@@ -1,20 +1,33 @@
 use super::*;
-use crate::base::pfw;
 use paho_mqtt::{
-    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, Message, PersistenceType
+    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, PersistenceType
 };
 use std::{collections::HashMap, mem::replace, time::Duration};
 
+pub struct MqttConfigEx {
+    pub offline_queue: bool
+}
+
+impl Default for MqttConfigEx {
+    fn default() -> Self {
+        MqttConfigEx {
+            offline_queue: false
+        }
+    }
+}
+
 pub struct MqttConfig {
     create_builder: Option<CreateOptionsBuilder>,
-    conn_builder: ConnectOptionsBuilder
+    conn_builder: ConnectOptionsBuilder,
+    cfg: MqttConfigEx
 }
 
 impl Default for MqttConfig {
     fn default() -> Self {
         MqttConfig {
             create_builder: Some(CreateOptionsBuilder::default()),
-            conn_builder: ConnectOptionsBuilder::default()
+            conn_builder: ConnectOptionsBuilder::default(),
+            cfg: MqttConfigEx::default()
         }
     }
 }
@@ -26,11 +39,12 @@ impl MqttConfig {
     /// # Notice
     ///
     /// 仅能调用一次
-    pub fn build(&mut self, url: String) -> (CreateOptions, ConnectOptions) {
+    pub fn build(&mut self, url: String) -> (CreateOptions, ConnectOptions, MqttConfigEx) {
         let create_builder = self.create_builder.replace(CreateOptionsBuilder::default()).unwrap();
+        let cfg = replace(&mut self.cfg, MqttConfigEx::default());
         let mut conn_builder = replace(&mut self.conn_builder, ConnectOptionsBuilder::default());
         conn_builder.server_uris(&url.split(";").collect::<Vec<&str>>());
-        (create_builder.finalize(), conn_builder.finalize())
+        (create_builder.finalize(), conn_builder.finalize(), cfg)
     }
 
     #[method(name = "SetVersion")]
@@ -81,6 +95,7 @@ impl MqttConfig {
     fn offline_queue(&mut self, enabled: bool) -> &mut Self {
         let create_builder = self.create_builder.take().unwrap();
         self.create_builder.replace(create_builder.send_while_disconnected(enabled));
+        self.cfg.offline_queue = enabled;
         self
     }
 
@@ -98,70 +113,11 @@ impl MqttConfig {
         self
     }
 
-    #[method(name = "WillMessage", overload = 2)]
-    fn will_message(&mut self, topic: String, qos: Option<pblong>, retain: Option<bool>) -> &mut Self {
-        let msg = if retain.unwrap_or_default() {
-            Message::new_retained(topic.clone(), Vec::new(), qos.unwrap_or_default())
-        } else {
-            Message::new(topic.clone(), Vec::new(), qos.unwrap_or_default())
-        };
-        self.conn_builder.will_message(msg);
-        self
-    }
-
-    #[method(name = "WillMessage", overload = 2)]
-    fn will_message_string(
-        &mut self,
-        topic: String,
-        data: String,
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> &mut Self {
-        let msg = if retain.unwrap_or_default() {
-            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
-        } else {
-            Message::new(topic.clone(), data, qos.unwrap_or_default())
-        };
-        self.conn_builder.will_message(msg);
-        self
-    }
-
-    #[method(name = "WillMessage", overload = 2)]
-    fn will_message_binary(
-        &mut self,
-        topic: String,
-        data: &[u8],
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> &mut Self {
-        let msg = if retain.unwrap_or_default() {
-            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
-        } else {
-            Message::new(topic.clone(), data, qos.unwrap_or_default())
-        };
-        self.conn_builder.will_message(msg);
-        self
-    }
-
-    #[method(name = "WillMessage", overload = 2)]
-    fn will_message_json_or_xml(
-        &mut self,
-        topic: String,
-        obj: Object,
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> &mut Self {
-        let data = match obj.get_class_name().as_str() {
-            "n_json" => pfw::json_serialize(&obj),
-            "n_xmldoc" => pfw::xml_serialize(&obj),
-            cls @ _ => panic!("unexpect class {cls}")
-        };
-        let msg = if retain.unwrap_or_default() {
-            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
-        } else {
-            Message::new(topic.clone(), data, qos.unwrap_or_default())
-        };
-        self.conn_builder.will_message(msg);
+    #[method(name = "WillMessage")]
+    fn will_message(&mut self, msg: &mut MqttMessage) -> &mut Self {
+        if let Some(msg) = msg.take() {
+            self.conn_builder.will_message(msg);
+        }
         self
     }
 }

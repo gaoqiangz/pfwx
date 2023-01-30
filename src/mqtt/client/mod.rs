@@ -1,14 +1,15 @@
-use crate::{base::pfw, prelude::*};
+use crate::prelude::*;
 use paho_mqtt::{
     async_client::AsyncClient, ConnectOptionsBuilder, ConnectToken, CreateOptionsBuilder, DeliveryToken, Message, SubscribeToken
 };
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
+use std::mem::take;
 
 mod config;
 mod message;
 
-use config::MqttConfig;
+use config::{MqttConfig, MqttConfigEx};
 use message::MqttMessage;
 
 struct Subscribe {
@@ -19,11 +20,13 @@ struct Subscribe {
 struct MqttClient {
     state: HandlerState,
     client: Option<AsyncClient>,
+    cfg: MqttConfigEx,
     has_connected: bool,
     has_closed: bool,
     conn_id: u64,
     offline_publish: Vec<Message>,
-    offline_subscribe: Vec<Subscribe>
+    offline_subscribe: Vec<Subscribe>,
+    offline_unsubscribe: Vec<String>
 }
 
 #[nonvisualobject(name = "nx_mqttclient")]
@@ -33,17 +36,19 @@ impl MqttClient {
         MqttClient {
             state: HandlerState::new(session),
             client: None,
+            cfg: Default::default(),
             has_connected: false,
             has_closed: false,
             conn_id: 0,
             offline_publish: Default::default(),
-            offline_subscribe: Default::default()
+            offline_subscribe: Default::default(),
+            offline_unsubscribe: Default::default()
         }
     }
 
     #[method(name = "IsOpen")]
     fn is_open(&mut self) -> bool {
-        self.client.as_ref().map(|client| client.is_connected()).unwrap_or_default()
+        self.has_connected && self.client.as_ref().map(|client| client.is_connected()).unwrap_or_default()
     }
 
     #[method(name = "IsClosed")]
@@ -54,12 +59,12 @@ impl MqttClient {
         if self.client.is_some() {
             return RetCode::E_BUSY;
         }
-        let (create_cfg, conn_cfg) = match cfg {
+        let (create_cfg, conn_cfg, cfg) = match cfg {
             Some(cfg) => cfg.build(url),
             None => {
                 let mut conn_builder = ConnectOptionsBuilder::default();
                 conn_builder.server_uris(&url.split(";").collect::<Vec<&str>>());
-                (CreateOptionsBuilder::default().finalize(), conn_builder.finalize())
+                (CreateOptionsBuilder::default().finalize(), conn_builder.finalize(), Default::default())
             }
         };
         let client = AsyncClient::new(create_cfg)?;
@@ -78,7 +83,7 @@ impl MqttClient {
                             } else {
                                 true
                             };
-                            this.on_open(is_reconnect);
+                            this.on_open(is_reconnect, false);
                             //处理离线消息
                             let client = this.client.as_ref().unwrap();
                             if !this.offline_subscribe.is_empty() {
@@ -93,8 +98,15 @@ impl MqttClient {
                                     client.subscribe_many(&topic_filters, &qos)
                                 );
                             }
+                            if !this.offline_unsubscribe.is_empty() {
+                                let topic_filters = take(&mut this.offline_unsubscribe);
+                                this.watch_unsubscribe(
+                                    topic_filters.join(";"),
+                                    client.unsubscribe_many(&topic_filters)
+                                );
+                            }
                             if !this.offline_publish.is_empty() {
-                                let offline_publish = std::mem::take(&mut this.offline_publish);
+                                let offline_publish = take(&mut this.offline_publish);
                                 for msg in offline_publish {
                                     this.watch_publish(msg.topic().to_owned(), client.publish(msg));
                                 }
@@ -154,6 +166,7 @@ impl MqttClient {
         });
         let token = client.connect(conn_cfg);
         self.client = Some(client);
+        self.cfg = cfg;
         self.conn_id += 1;
         self.watch_connect(token);
 
@@ -162,8 +175,9 @@ impl MqttClient {
 
     #[method(name = "Close")]
     fn close(&mut self) -> RetCode {
-        self.offline_subscribe.clear();
         self.offline_publish.clear();
+        self.offline_subscribe.clear();
+        self.offline_unsubscribe.clear();
         let has_connected = self.has_connected;
         let has_closed = self.has_closed;
         self.has_connected = false;
@@ -177,98 +191,19 @@ impl MqttClient {
         RetCode::OK
     }
 
-    #[method(name = "Publish", overload = 2)]
-    fn publish(&mut self, topic: String, qos: Option<pblong>, retain: Option<bool>) -> RetCode {
+    #[method(name = "Publish")]
+    fn publish(&mut self, msg: &mut MqttMessage) -> RetCode {
         if let Some(client) = self.client.as_ref() {
-            let msg = if retain.unwrap_or_default() {
-                Message::new_retained(topic.clone(), Vec::new(), qos.unwrap_or_default())
-            } else {
-                Message::new(topic.clone(), Vec::new(), qos.unwrap_or_default())
+            let msg = match msg.take() {
+                Some(msg) => msg,
+                None => return RetCode::E_INVALID_OBJECT
             };
-            if client.is_connected() {
-                self.watch_publish(topic, client.publish(msg));
-            } else {
+            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
+                self.watch_publish(msg.topic().to_owned(), client.publish(msg));
+            } else if self.cfg.offline_queue {
                 self.offline_publish.push(msg);
-            }
-            RetCode::OK
-        } else {
-            RetCode::E_INVALID_HANDLE
-        }
-    }
-
-    #[method(name = "Publish", overload = 2)]
-    fn publish_string(
-        &mut self,
-        topic: String,
-        data: String,
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> RetCode {
-        if let Some(client) = self.client.as_ref() {
-            let msg = if retain.unwrap_or_default() {
-                Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
             } else {
-                Message::new(topic.clone(), data, qos.unwrap_or_default())
-            };
-            if client.is_connected() {
-                self.watch_publish(topic, client.publish(msg));
-            } else {
-                self.offline_publish.push(msg);
-            }
-            RetCode::OK
-        } else {
-            RetCode::E_INVALID_HANDLE
-        }
-    }
-
-    #[method(name = "Publish", overload = 2)]
-    fn publish_binary(
-        &mut self,
-        topic: String,
-        data: &[u8],
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> RetCode {
-        if let Some(client) = self.client.as_ref() {
-            let msg = if retain.unwrap_or_default() {
-                Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
-            } else {
-                Message::new(topic.clone(), data, qos.unwrap_or_default())
-            };
-            if client.is_connected() {
-                self.watch_publish(topic, client.publish(msg));
-            } else {
-                self.offline_publish.push(msg);
-            }
-            RetCode::OK
-        } else {
-            RetCode::E_INVALID_HANDLE
-        }
-    }
-
-    #[method(name = "Publish", overload = 2)]
-    fn publish_json_or_xml(
-        &mut self,
-        topic: String,
-        obj: Object,
-        qos: Option<pblong>,
-        retain: Option<bool>
-    ) -> RetCode {
-        if let Some(client) = self.client.as_ref() {
-            let data = match obj.get_class_name().as_str() {
-                "n_json" => pfw::json_serialize(&obj),
-                "n_xmldoc" => pfw::xml_serialize(&obj),
-                cls @ _ => panic!("unexpect class {cls}")
-            };
-            let msg = if retain.unwrap_or_default() {
-                Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
-            } else {
-                Message::new(topic.clone(), data, qos.unwrap_or_default())
-            };
-            if client.is_connected() {
-                self.watch_publish(topic, client.publish(msg));
-            } else {
-                self.offline_publish.push(msg);
+                return RetCode::E_IO_ERROR;
             }
             RetCode::OK
         } else {
@@ -280,13 +215,15 @@ impl MqttClient {
     fn subscribe(&mut self, topic_filter: String, qos: Option<pblong>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             let qos = qos.unwrap_or_default();
-            if client.is_connected() {
+            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
                 self.watch_subscribe(topic_filter.clone(), client.subscribe(topic_filter, qos));
-            } else {
+            } else if self.cfg.offline_queue {
                 self.offline_subscribe.push(Subscribe {
                     topic_filter,
                     qos
                 });
+            } else {
+                return RetCode::E_IO_ERROR;
             }
             RetCode::OK
         } else {
@@ -303,15 +240,17 @@ impl MqttClient {
                 qos
             });
             assert_eq!(topic_filters.len(), qos.len());
-            if client.is_connected() {
+            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
                 self.watch_subscribe(topic_filters.join(";"), client.subscribe_many(&topic_filters, &qos));
-            } else {
+            } else if self.cfg.offline_queue {
                 while let (Some(topic_filter), Some(qos)) = (topic_filters.pop(), qos.pop()) {
                     self.offline_subscribe.push(Subscribe {
                         topic_filter,
                         qos
                     });
                 }
+            } else {
+                return RetCode::E_IO_ERROR;
             }
             RetCode::OK
         } else {
@@ -323,7 +262,13 @@ impl MqttClient {
     fn unsubscribe(&mut self, topic_filter: String) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             self.offline_subscribe.retain(|item| item.topic_filter != topic_filter);
-            self.watch_unsubscribe(topic_filter.clone(), client.unsubscribe(topic_filter));
+            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
+                self.watch_unsubscribe(topic_filter.clone(), client.unsubscribe(topic_filter));
+            } else if self.cfg.offline_queue {
+                self.offline_unsubscribe.push(topic_filter);
+            } else {
+                return RetCode::E_IO_ERROR;
+            }
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -334,7 +279,13 @@ impl MqttClient {
     fn unsubscribe_many(&mut self, topic_filters: Vec<String>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             self.offline_subscribe.retain(|item| !topic_filters.contains(&item.topic_filter));
-            self.watch_unsubscribe(topic_filters.join(";"), client.unsubscribe_many(&topic_filters));
+            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
+                self.watch_unsubscribe(topic_filters.join(";"), client.unsubscribe_many(&topic_filters));
+            } else if self.cfg.offline_queue {
+                self.offline_unsubscribe.extend(topic_filters);
+            } else {
+                return RetCode::E_IO_ERROR;
+            }
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -393,7 +344,7 @@ impl MqttClient {
     }
 
     #[event(name = "OnOpen")]
-    fn on_open(&mut self, reconnect: bool) {}
+    fn on_open(&mut self, reconnect: bool, session_present: bool) {}
 
     #[event(name = "OnClose")]
     fn on_close(&mut self, code: pblong, info: String) {}

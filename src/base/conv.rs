@@ -38,6 +38,19 @@ fn codepage(encoding: pblong) -> usize {
     }
 }
 
+/// 通过指定编码进行字符串编码
+///
+/// NOTE 默认`utf-8`
+pub fn encode(data: &str, encoding: pblong) -> Cow<[u8]> {
+    let codec =
+        encoding::label::encoding_from_windows_code_page(codepage(encoding)).unwrap_or(encoding::all::UTF_8);
+    if codec.name() == "utf-8" {
+        Cow::Borrowed(data.as_bytes())
+    } else {
+        codec.encode(data, encoding::EncoderTrap::Replace).map(Cow::from).unwrap_or_default()
+    }
+}
+
 /// 通过指定编码进行字符串解码
 ///
 /// NOTE 默认`utf-8`
