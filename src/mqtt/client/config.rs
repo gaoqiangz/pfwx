@@ -1,6 +1,7 @@
 use super::*;
+use crate::base::pfw;
 use paho_mqtt::{
-    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, PersistenceType
+    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, Message, PersistenceType
 };
 use std::{collections::HashMap, mem::replace, time::Duration};
 
@@ -94,6 +95,73 @@ impl MqttConfig {
     #[method(name = "SetTimeout")]
     fn timeout(&mut self, secs: pbdouble) -> &mut Self {
         self.conn_builder.connect_timeout(Duration::from_secs_f64(secs));
+        self
+    }
+
+    #[method(name = "WillMessage", overload = 2)]
+    fn will_message(&mut self, topic: String, qos: Option<pblong>, retain: Option<bool>) -> &mut Self {
+        let msg = if retain.unwrap_or_default() {
+            Message::new_retained(topic.clone(), Vec::new(), qos.unwrap_or_default())
+        } else {
+            Message::new(topic.clone(), Vec::new(), qos.unwrap_or_default())
+        };
+        self.conn_builder.will_message(msg);
+        self
+    }
+
+    #[method(name = "WillMessage", overload = 2)]
+    fn will_message_string(
+        &mut self,
+        topic: String,
+        data: String,
+        qos: Option<pblong>,
+        retain: Option<bool>
+    ) -> &mut Self {
+        let msg = if retain.unwrap_or_default() {
+            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
+        } else {
+            Message::new(topic.clone(), data, qos.unwrap_or_default())
+        };
+        self.conn_builder.will_message(msg);
+        self
+    }
+
+    #[method(name = "WillMessage", overload = 2)]
+    fn will_message_binary(
+        &mut self,
+        topic: String,
+        data: &[u8],
+        qos: Option<pblong>,
+        retain: Option<bool>
+    ) -> &mut Self {
+        let msg = if retain.unwrap_or_default() {
+            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
+        } else {
+            Message::new(topic.clone(), data, qos.unwrap_or_default())
+        };
+        self.conn_builder.will_message(msg);
+        self
+    }
+
+    #[method(name = "WillMessage", overload = 2)]
+    fn will_message_json_or_xml(
+        &mut self,
+        topic: String,
+        obj: Object,
+        qos: Option<pblong>,
+        retain: Option<bool>
+    ) -> &mut Self {
+        let data = match obj.get_class_name().as_str() {
+            "n_json" => pfw::json_serialize(&obj),
+            "n_xmldoc" => pfw::xml_serialize(&obj),
+            cls @ _ => panic!("unexpect class {cls}")
+        };
+        let msg = if retain.unwrap_or_default() {
+            Message::new_retained(topic.clone(), data, qos.unwrap_or_default())
+        } else {
+            Message::new(topic.clone(), data, qos.unwrap_or_default())
+        };
+        self.conn_builder.will_message(msg);
         self
     }
 }

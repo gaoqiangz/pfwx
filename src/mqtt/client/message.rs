@@ -1,4 +1,5 @@
 use super::*;
+use crate::base::{conv, pfw};
 use paho_mqtt::Message;
 use std::borrow::Cow;
 
@@ -26,6 +27,32 @@ impl MqttMessage {
     #[method(name = "GetData")]
     fn payload_binary(&self) -> &[u8] { self.inner.as_ref().map(|msg| msg.payload()).unwrap_or_default() }
 
-    #[method(name = "GetDataString")]
-    fn payload_str(&self) -> Cow<str> { self.inner.as_ref().map(|msg| msg.payload_str()).unwrap_or_default() }
+    #[method(name = "GetDataString", overload = 1)]
+    fn payload_str(&self, encoding: Option<pblong>) -> Cow<str> {
+        if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
+            conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
+        } else {
+            "".into()
+        }
+    }
+
+    #[method(name = "GetDataJSON", overload = 1)]
+    fn payload_json(&self, encoding: Option<pblong>) -> Object {
+        let data = if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
+            conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
+        } else {
+            "".into()
+        };
+        pfw::json_parse(self.get_session(), &data)
+    }
+
+    #[method(name = "GetDataXML", overload = 1)]
+    fn payload_xml(&self, encoding: Option<pblong>) -> Object {
+        let data = if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
+            conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
+        } else {
+            "".into()
+        };
+        pfw::xml_parse(self.get_session(), &data)
+    }
 }

@@ -20,6 +20,7 @@ struct MqttClient {
     state: HandlerState,
     client: Option<AsyncClient>,
     has_connected: bool,
+    has_closed: bool,
     conn_id: u64,
     offline_publish: Vec<Message>,
     offline_subscribe: Vec<Subscribe>
@@ -33,6 +34,7 @@ impl MqttClient {
             state: HandlerState::new(session),
             client: None,
             has_connected: false,
+            has_closed: false,
             conn_id: 0,
             offline_publish: Default::default(),
             offline_subscribe: Default::default()
@@ -46,15 +48,6 @@ impl MqttClient {
 
     #[method(name = "IsClosed")]
     fn is_closed(&mut self) -> bool { !self.is_open() }
-
-    #[method(name = "IsPending")]
-    fn is_pending(&mut self) -> bool { false }
-
-    #[method(name = "IsReconnecting")]
-    fn is_reconnecting(&mut self) -> bool { false }
-
-    #[method(name = "GetState")]
-    fn get_state(&mut self) -> pblong { 0 }
 
     #[method(name = "Open", overload = 1)]
     fn open(&mut self, url: String, cfg: Option<&mut MqttConfig>) -> RetCode {
@@ -78,6 +71,15 @@ impl MqttClient {
                 runtime::spawn(async move {
                     let _ = invoker
                         .invoke((), |this, ()| {
+                            this.has_closed = false;
+                            let is_reconnect = if !this.has_connected {
+                                this.has_connected = true;
+                                false
+                            } else {
+                                true
+                            };
+                            this.on_open(is_reconnect);
+                            //处理离线消息
                             let client = this.client.as_ref().unwrap();
                             if !this.offline_subscribe.is_empty() {
                                 let mut topic_filters = Vec::with_capacity(this.offline_subscribe.len());
@@ -97,13 +99,6 @@ impl MqttClient {
                                     this.watch_publish(msg.topic().to_owned(), client.publish(msg));
                                 }
                             }
-                            let is_reconnect = if !this.has_connected {
-                                this.has_connected = true;
-                                false
-                            } else {
-                                true
-                            };
-                            this.on_open(is_reconnect);
                         })
                         .await;
                 });
@@ -116,6 +111,9 @@ impl MqttClient {
                 runtime::spawn(async move {
                     let _ = invoker
                         .invoke((reason as pblong, reason.to_string()), |this, (code, info)| {
+                            this.has_connected = false;
+                            this.has_closed = true;
+                            this.client = None;
                             this.on_close(code, info);
                         })
                         .await;
@@ -129,6 +127,7 @@ impl MqttClient {
                 runtime::spawn(async move {
                     let _ = invoker
                         .invoke((), |this, ()| {
+                            this.has_closed = true;
                             this.on_close(-1, "lost".to_owned());
                         })
                         .await;
@@ -163,12 +162,18 @@ impl MqttClient {
 
     #[method(name = "Close")]
     fn close(&mut self) -> RetCode {
-        if let Some(client) = self.client.take() {
-            client.disconnect(None);
-        }
         self.offline_subscribe.clear();
         self.offline_publish.clear();
+        let has_connected = self.has_connected;
+        let has_closed = self.has_closed;
         self.has_connected = false;
+        self.has_closed = false;
+        if let Some(client) = self.client.take() {
+            client.disconnect(None);
+            if has_connected && !has_closed {
+                self.on_close(0, "close".to_owned());
+            }
+        }
         RetCode::OK
     }
 
@@ -252,7 +257,7 @@ impl MqttClient {
         if let Some(client) = self.client.as_ref() {
             let data = match obj.get_class_name().as_str() {
                 "n_json" => pfw::json_serialize(&obj),
-                "n_xml" => pfw::xml_serialize(&obj),
+                "n_xmldoc" => pfw::xml_serialize(&obj),
                 cls @ _ => panic!("unexpect class {cls}")
             };
             let msg = if retain.unwrap_or_default() {
