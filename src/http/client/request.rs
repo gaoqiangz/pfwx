@@ -148,7 +148,7 @@ impl HttpRequest {
     }
 
     #[method(name = "Send", overload = 1)]
-    fn send(&mut self, hevent: Option<pbulong>) -> Result<Object> {
+    fn send(&mut self, hevent: Option<pbulong>) -> Object {
         if let Some(HttpRequestInner {
             client,
             builder

@@ -4,7 +4,7 @@ use paho_mqtt::{
 };
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
-use std::mem::take;
+use std::{mem::take, time::Duration};
 
 mod config;
 mod message;
@@ -155,8 +155,7 @@ impl MqttClient {
                         let _ = invoker
                             .invoke(msg, |this, msg| {
                                 let obj =
-                                    MqttMessage::new_object_modify(this.get_session(), |obj| obj.init(msg))
-                                        .unwrap();
+                                    MqttMessage::new_object_modify(this.get_session(), |obj| obj.init(msg));
                                 this.on_message(obj);
                             })
                             .await;
@@ -183,7 +182,7 @@ impl MqttClient {
         self.has_connected = false;
         self.has_closed = false;
         if let Some(client) = self.client.take() {
-            client.disconnect(None);
+            let _ = client.disconnect(None).wait_for(Duration::from_secs(3));
             if has_connected && !has_closed {
                 self.on_close(0, "close".to_owned());
             }

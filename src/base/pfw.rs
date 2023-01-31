@@ -9,7 +9,11 @@ static ref API: &'static Api = unsafe { Api::load() };
 pub fn json_parse<'a>(session: Session, data: &str) -> Object<'a> {
     unsafe {
         let obj = (API.JsonParseUTF8)(session.as_raw(), data.as_ptr(), data.len());
-        Object::from_raw(obj, session)
+        if let Some(obj) = obj {
+            Object::from_raw(obj, session)
+        } else {
+            panic!("Cannot create object 'n_json'")
+        }
     }
 }
 
@@ -33,7 +37,11 @@ pub fn json_serialize(obj: &Object) -> String {
 pub fn xml_parse<'a>(session: Session, data: &str) -> Object<'a> {
     unsafe {
         let obj = (API.XmlParseUTF8)(session.as_raw(), data.as_ptr(), data.len());
-        Object::from_raw(obj, session)
+        if let Some(obj) = obj {
+            Object::from_raw(obj, session)
+        } else {
+            panic!("Cannot create object 'n_xmldoc'")
+        }
     }
 }
 
@@ -56,10 +64,10 @@ pub fn xml_serialize(obj: &Object) -> String {
 #[allow(non_snake_case)]
 #[repr(C)]
 struct Api {
-    JsonParseUTF8: extern "system" fn(pbsession: pbsession, data: *const u8, len: usize) -> pbobject,
+    JsonParseUTF8: extern "system" fn(pbsession: pbsession, data: *const u8, len: usize) -> Option<pbobject>,
     JsonSerializeUTF8:
         extern "system" fn(pbsession: pbsession, pbobject: pbobject, len: *mut usize) -> *mut u8,
-    XmlParseUTF8: extern "system" fn(pbsession: pbsession, data: *const u8, len: usize) -> pbobject,
+    XmlParseUTF8: extern "system" fn(pbsession: pbsession, data: *const u8, len: usize) -> Option<pbobject>,
     XmlSerializeUTF8:
         extern "system" fn(pbsession: pbsession, pbobject: pbobject, len: *mut usize) -> *mut u8,
     Free: extern "system" fn(data: *mut u8)

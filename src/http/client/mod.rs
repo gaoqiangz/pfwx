@@ -60,8 +60,7 @@ impl HttpClient {
         let is_succ = resp.is_succ();
         let resp = HttpResponse::new_object_modify(self.get_session(), |obj| {
             obj.init(resp, elapsed, Some(id), receive_file)
-        })
-        .unwrap();
+        });
         let alive = self.get_alive_state();
         if !is_cancelled {
             if is_succ {
@@ -85,10 +84,10 @@ impl HttpClient {
     }
 
     #[method(name = "Request")]
-    fn request(&mut self, method: String, url: String) -> Result<Object> {
+    fn request(&mut self, method: String, url: String) -> Object {
         let method = match Method::from_str(&method.to_ascii_uppercase()) {
             Ok(method) => method,
-            Err(_) => return Err(PBXRESULT::E_INVALID_ARGUMENT)
+            Err(_) => panic!("Unsupport method: {method}")
         };
         HttpRequest::new_object_modify(self.get_session(), |obj| {
             obj.init(self.get_object().share(), self.client.request(method, url));
