@@ -24,9 +24,7 @@ struct MqttClient {
     has_connected: bool,
     has_closed: bool,
     conn_id: u64,
-    offline_publish: Vec<Message>,
-    offline_subscribe: Vec<Subscribe>,
-    offline_unsubscribe: Vec<String>
+    offline_publish: Vec<Message>
 }
 
 #[nonvisualobject(name = "nx_mqttclient")]
@@ -40,9 +38,7 @@ impl MqttClient {
             has_connected: false,
             has_closed: false,
             conn_id: 0,
-            offline_publish: Default::default(),
-            offline_subscribe: Default::default(),
-            offline_unsubscribe: Default::default()
+            offline_publish: Default::default()
         }
     }
 
@@ -86,25 +82,6 @@ impl MqttClient {
                             this.on_open(is_reconnect, false);
                             //处理离线消息
                             let client = this.client.as_ref().unwrap();
-                            if !this.offline_subscribe.is_empty() {
-                                let mut topic_filters = Vec::with_capacity(this.offline_subscribe.len());
-                                let mut qos = Vec::with_capacity(this.offline_subscribe.len());
-                                for subscribe in this.offline_subscribe.drain(..) {
-                                    topic_filters.push(subscribe.topic_filter);
-                                    qos.push(subscribe.qos);
-                                }
-                                this.watch_unsubscribe(
-                                    topic_filters.join(";"),
-                                    client.subscribe_many(&topic_filters, &qos)
-                                );
-                            }
-                            if !this.offline_unsubscribe.is_empty() {
-                                let topic_filters = take(&mut this.offline_unsubscribe);
-                                this.watch_unsubscribe(
-                                    topic_filters.join(";"),
-                                    client.unsubscribe_many(&topic_filters)
-                                );
-                            }
                             if !this.offline_publish.is_empty() {
                                 let offline_publish = take(&mut this.offline_publish);
                                 for msg in offline_publish {
@@ -175,8 +152,6 @@ impl MqttClient {
     #[method(name = "Close")]
     fn close(&mut self) -> RetCode {
         self.offline_publish.clear();
-        self.offline_subscribe.clear();
-        self.offline_unsubscribe.clear();
         let has_connected = self.has_connected;
         let has_closed = self.has_closed;
         self.has_connected = false;
@@ -214,16 +189,7 @@ impl MqttClient {
     fn subscribe(&mut self, topic_filter: String, qos: Option<pblong>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
             let qos = qos.unwrap_or_default();
-            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
-                self.watch_subscribe(topic_filter.clone(), client.subscribe(topic_filter, qos));
-            } else if self.cfg.offline_queue {
-                self.offline_subscribe.push(Subscribe {
-                    topic_filter,
-                    qos
-                });
-            } else {
-                return RetCode::E_IO_ERROR;
-            }
+            self.watch_subscribe(topic_filter.clone(), client.subscribe(topic_filter, qos));
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -231,26 +197,15 @@ impl MqttClient {
     }
 
     #[method(name = "Subscribe", overload = 1)]
-    fn subscribe_many(&mut self, mut topic_filters: Vec<String>, qos: Option<Vec<pblong>>) -> RetCode {
+    fn subscribe_many(&mut self, topic_filters: Vec<String>, qos: Option<Vec<pblong>>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
-            let mut qos = qos.unwrap_or_else(|| {
+            let qos = qos.unwrap_or_else(|| {
                 let mut qos = Vec::with_capacity(topic_filters.len());
                 qos.resize(topic_filters.len(), 0);
                 qos
             });
             assert_eq!(topic_filters.len(), qos.len());
-            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
-                self.watch_subscribe(topic_filters.join(";"), client.subscribe_many(&topic_filters, &qos));
-            } else if self.cfg.offline_queue {
-                while let (Some(topic_filter), Some(qos)) = (topic_filters.pop(), qos.pop()) {
-                    self.offline_subscribe.push(Subscribe {
-                        topic_filter,
-                        qos
-                    });
-                }
-            } else {
-                return RetCode::E_IO_ERROR;
-            }
+            self.watch_subscribe(topic_filters.join(";"), client.subscribe_many(&topic_filters, &qos));
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -260,14 +215,7 @@ impl MqttClient {
     #[method(name = "Unsubscribe")]
     fn unsubscribe(&mut self, topic_filter: String) -> RetCode {
         if let Some(client) = self.client.as_ref() {
-            self.offline_subscribe.retain(|item| item.topic_filter != topic_filter);
-            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
-                self.watch_unsubscribe(topic_filter.clone(), client.unsubscribe(topic_filter));
-            } else if self.cfg.offline_queue {
-                self.offline_unsubscribe.push(topic_filter);
-            } else {
-                return RetCode::E_IO_ERROR;
-            }
+            self.watch_unsubscribe(topic_filter.clone(), client.unsubscribe(topic_filter));
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
@@ -277,14 +225,7 @@ impl MqttClient {
     #[method(name = "Unsubscribe")]
     fn unsubscribe_many(&mut self, topic_filters: Vec<String>) -> RetCode {
         if let Some(client) = self.client.as_ref() {
-            self.offline_subscribe.retain(|item| !topic_filters.contains(&item.topic_filter));
-            if (self.has_connected || !self.cfg.offline_queue) && client.is_connected() {
-                self.watch_unsubscribe(topic_filters.join(";"), client.unsubscribe_many(&topic_filters));
-            } else if self.cfg.offline_queue {
-                self.offline_unsubscribe.extend(topic_filters);
-            } else {
-                return RetCode::E_IO_ERROR;
-            }
+            self.watch_unsubscribe(topic_filters.join(";"), client.unsubscribe_many(&topic_filters));
             RetCode::OK
         } else {
             RetCode::E_INVALID_HANDLE
