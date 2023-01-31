@@ -1,6 +1,6 @@
 use super::*;
 use paho_mqtt::{
-    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, PersistenceType
+    ClientPersistence, ConnectOptions, ConnectOptionsBuilder, CreateOptions, CreateOptionsBuilder, PersistenceType, SslOptionsBuilder
 };
 use std::{collections::HashMap, mem::replace, time::Duration};
 
@@ -44,6 +44,8 @@ impl MqttConfig {
         let cfg = replace(&mut self.cfg, MqttConfigEx::default());
         let mut conn_builder = replace(&mut self.conn_builder, ConnectOptionsBuilder::default());
         conn_builder.server_uris(&url.split(";").collect::<Vec<&str>>());
+        let ssl_opts = SslOptionsBuilder::new().enable_server_cert_auth(false).finalize();
+        conn_builder.ssl_options(ssl_opts);
         (create_builder.finalize(), conn_builder.finalize(), cfg)
     }
 
