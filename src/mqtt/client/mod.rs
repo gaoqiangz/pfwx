@@ -79,6 +79,7 @@ impl MqttClient {
                             } else {
                                 true
                             };
+                            //TODO - 支持`session present`检测
                             this.on_open(is_reconnect, false);
                             //处理离线消息
                             let client = this.client.as_ref().unwrap();
