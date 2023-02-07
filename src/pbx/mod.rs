@@ -1,3 +1,5 @@
+//! `PBNI`扩展对象
+
 #[cfg(feature = "http")]
 mod http;
 #[cfg(feature = "mqtt")]
