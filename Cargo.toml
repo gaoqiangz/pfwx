@@ -42,13 +42,12 @@ winres = "0.1.12"
 [features]
 default = ["full"]
 full = ["http", "mqtt", "parser"]
+unchecked = ["pbni-rs/unchecked"]
 
 parser = ["dwparser", "serde_json"]
 http = ["reactor", "reqwest", "mime", "encoding"]
 reactor = ["tokio", "futures-util", "windows", "backtrace"]
 mqtt = ["reactor", "paho-mqtt"]
-
-unchecked = ["pbni-rs/unchecked"]
 
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }

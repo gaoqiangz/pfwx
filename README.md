@@ -26,6 +26,7 @@ PowerFramework :heart: Rust
 | `http` | HTTP模块                                              | Y  |
 | `mqtt` | MQTT模块                                            | Y  |
 | `parser`    | 解析工具模块                                    | Y  |
+| `unchecked`    | PBNI对象生成的代码不校验数据类型与返回值（可提升执行性能）                                    | N  |
 
 ## License
 
