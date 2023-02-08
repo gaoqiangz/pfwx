@@ -49,15 +49,18 @@ pub enum RetCode {
 
 impl FromValue<'_> for RetCode {
     fn from_value(val: Option<Value>) -> PBXResult<Self> {
-        match val {
-            Some(val) => {
-                val.try_get_long().map(|val| unsafe { std::mem::transmute(val.unwrap_or_default()) })
-            },
-            None => Err(PBXRESULT::E_INVOKE_WRONG_NUM_ARGS)
+        if let Some(val) = val {
+            val.try_get_long().map(|val| unsafe { std::mem::transmute(val.unwrap_or_default()) })
+        } else {
+            Err(PBXRESULT::E_INVOKE_WRONG_NUM_ARGS)
         }
     }
-    unsafe fn from_value_unchecked(val: Value) -> PBXResult<Self> {
-        Ok(std::mem::transmute(val.get_long_unchecked().unwrap_or_default()))
+    unsafe fn from_value_unchecked(val: Option<Value>) -> PBXResult<Self> {
+        if let Some(val) = val {
+            Ok(std::mem::transmute(val.get_long_unchecked().unwrap_or_default()))
+        } else {
+            Err(PBXRESULT::E_INVOKE_WRONG_NUM_ARGS)
+        }
     }
 }
 

@@ -1268,7 +1268,7 @@ checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
 [[package]]
 name = "pbni-codegen"
 version = "0.1.0"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#361faa630094c08b1b25814a50237be57bb26213"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#33fdd21c023dccb54276c9b9260157e6823fc909"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1278,7 +1278,7 @@ dependencies = [
 [[package]]
 name = "pbni-rs"
 version = "0.1.14"
-source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#361faa630094c08b1b25814a50237be57bb26213"
+source = "git+https://github.com/gaoqiangz/pbni-rs.git?branch=syslib#33fdd21c023dccb54276c9b9260157e6823fc909"
 dependencies = [
  "cc",
  "chrono",
