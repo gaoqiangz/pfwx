@@ -14,6 +14,8 @@ PowerFramework :heart: Rust
 
 ```bash
 > cargo +nightly build
+# 关闭PBNI参数类型和返回值检查
+> cargo +nightly build --features unchecked
 ```
 
 > - 默认目标`i686-pc-windows-msvc`
