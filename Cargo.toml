@@ -48,6 +48,8 @@ http = ["reactor", "reqwest", "mime", "encoding"]
 reactor = ["tokio", "futures-util", "windows", "backtrace"]
 mqtt = ["reactor", "paho-mqtt"]
 
+unchecked = ["pbni-rs/unchecked"]
+
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
 pbni-codegen = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }

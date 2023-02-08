@@ -56,10 +56,17 @@ impl FromValue<'_> for RetCode {
             None => Err(PBXRESULT::E_INVOKE_WRONG_NUM_ARGS)
         }
     }
+    unsafe fn from_value_unchecked(val: Value) -> PBXResult<Self> {
+        Ok(std::mem::transmute(val.get_long_unchecked().unwrap_or_default()))
+    }
 }
 
 impl ToValue for RetCode {
     fn to_value(self, val: &mut Value) -> PBXResult<()> { val.try_set_long(self as _) }
+    unsafe fn to_value_unchecked(self, val: &mut Value) -> PBXResult<()> {
+        val.set_long_unchecked(self as _);
+        Ok(())
+    }
 }
 
 impl<E> FromResidual<Result<Infallible, E>> for RetCode {
