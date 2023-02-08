@@ -13,9 +13,17 @@ PowerFramework :heart: Rust
 ## 编译
 
 ```bash
-> cargo +nightly build
+# Release模式默认编译
+cargo +nightly build --release
+
+# 仅包含http模块
+cargo +nightly build --release --no-default-features --features http
+
+# 仅包含http和mqtt模块
+cargo +nightly build --release --no-default-features --features http,mqtt
+
 # 关闭PBNI参数类型和返回值检查
-> cargo +nightly build --features unchecked
+cargo +nightly build --release --features unchecked
 ```
 
 > - 默认目标`i686-pc-windows-msvc`

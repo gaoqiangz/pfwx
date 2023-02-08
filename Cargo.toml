@@ -43,10 +43,10 @@ winres = "0.1.12"
 default = ["full"]
 full = ["http", "mqtt", "parser"]
 unchecked = ["pbni-rs/unchecked"]
+reactor = ["tokio", "futures-util", "windows", "backtrace"]
 
 parser = ["dwparser", "serde_json"]
 http = ["reactor", "reqwest", "mime", "encoding"]
-reactor = ["tokio", "futures-util", "windows", "backtrace"]
 mqtt = ["reactor", "paho-mqtt"]
 
 [patch.crates-io]
