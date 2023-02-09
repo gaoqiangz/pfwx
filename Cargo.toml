@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["金千枝（深圳）软件技术有限公司. All rights reserved."]
 edition = "2021"
 license = "BSD-2-Clause"
-description = "Experimental PowerFramework built on Rust "
+description = "PowerFramework"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
