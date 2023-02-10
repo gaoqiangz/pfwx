@@ -115,7 +115,7 @@ impl MqttConfig {
         self
     }
 
-    #[method(name = "WillMessage")]
+    #[method(name = "SetWillMessage")]
     fn will_message(&mut self, msg: &mut MqttMessage) -> &mut Self {
         if let Some(msg) = msg.take() {
             self.conn_builder.will_message(msg);
