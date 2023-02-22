@@ -1,4 +1,4 @@
-use super::{mem::UnsafeBox, runtime};
+use super::mem::UnsafeBox;
 use pbni::{
     pbx::{AliveState, Session}, pbx_throw
 };
@@ -164,9 +164,6 @@ impl Drop for SyncContextInner {
                     );
                     *atom = 0;
                 }
-                //FIXME
-                //销毁运行时
-                runtime::shutdown();
             }
         }
     }

@@ -1,23 +1,36 @@
-use std::{future::Future, pin::Pin, sync::Mutex, thread};
+use std::{
+    future::Future, pin::Pin, sync::{
+        atomic::{AtomicUsize, Ordering}, Mutex
+    }, thread
+};
 use tokio::{
     runtime, sync::{mpsc, oneshot}, task
 };
 
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
+thread_local! {
+static COUNTER: Counter = Counter::new();
+}
+static COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// 在后台执行一个异步任务
 pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
 {
-    let runtime_tx = Runtime::global_sender();
+    //初始化计数
+    COUNTER.with(|_| ());
+    //获取运行时
+    let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+    if runtime.is_none() {
+        *runtime = Some(Runtime::new());
+    }
+    //推送任务
+    let runtime_tx = runtime.as_ref().unwrap().msg_tx.clone();
     if let Err(e) = runtime_tx.send(RuntimeMessage::Task(Box::pin(fut))) {
         panic!("send message to background failed: {e}");
     }
 }
-
-/// 销毁后台运行时
-pub fn shutdown() { Runtime::drop_global(); }
 
 /// 运行时消息
 enum RuntimeMessage {
@@ -26,27 +39,12 @@ enum RuntimeMessage {
 }
 
 /// 运行时
-pub struct Runtime {
+struct Runtime {
     msg_tx: mpsc::UnboundedSender<RuntimeMessage>,
     stop_rx: Option<oneshot::Receiver<()>>
 }
 
 impl Runtime {
-    /// 获取运行时消息发送通道
-    fn global_sender() -> mpsc::UnboundedSender<RuntimeMessage> {
-        let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
-        if runtime.is_none() {
-            *runtime = Some(Runtime::new());
-        }
-        runtime.as_ref().unwrap().msg_tx.clone()
-    }
-
-    /// 销毁运行时
-    fn drop_global() {
-        let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
-        *runtime = None;
-    }
-
     /// 创建运行时
     fn new() -> Runtime {
         assert!(runtime::Handle::try_current().is_err());
@@ -81,7 +79,7 @@ impl Runtime {
                 //退出信号
                 stop_tx.send(()).unwrap();
             })
-            .expect("new background thread");
+            .expect("create bkgnd-rt thread");
 
         Runtime {
             msg_tx,
@@ -98,5 +96,26 @@ impl Drop for Runtime {
         //FIXME
         //短暂挂起使线程调用栈完全退出
         thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+struct Counter;
+
+impl Counter {
+    fn new() -> Counter {
+        //计数
+        COUNT.fetch_add(1, Ordering::Relaxed);
+        Counter
+    }
+}
+
+impl Drop for Counter {
+    fn drop(&mut self) {
+        if COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
+            //FIXME
+            //销毁运行时
+            let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+            *runtime = None;
+        }
     }
 }
