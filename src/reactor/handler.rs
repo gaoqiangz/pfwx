@@ -34,6 +34,7 @@ pub trait Handler: Sized + 'static {
     ///
     /// - 通过`CancelHandle`手动取消
     /// - 此对象销毁时自动取消
+    #[cfg_attr(feature = "trace", track_caller)]
     fn spawn<F, H>(&self, fut: F, handler: H) -> CancelHandle
     where
         F: Future + Send + 'static,
@@ -106,6 +107,7 @@ pub trait Handler: Sized + 'static {
     /// # Returns
     ///
     /// `fut` 任务的执行结果
+    #[cfg_attr(feature = "trace", track_caller)]
     fn spawn_blocking<F, R>(&self, fut: F) -> Result<R, SpawnBlockingError>
     where
         F: Future<Output = R> + Send + 'static,

@@ -2,7 +2,7 @@
 target = "i686-pc-windows-msvc"
 
 [target.i686-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "--cfg", "tokio_unstable"]
 
 [env]
 i686_PC_WINDOWS_MSVC_OPENSSL_STATIC = { value = "1", force = true }

@@ -18,6 +18,10 @@ bytes = "1.3.0"
 libloading = "0.7.4"
 lazy_static = "1.4.0"
 
+# trace
+
+console-subscriber = { version = "0.1.8", optional = true }
+
 # reactor
 tokio = { version = "1.23.0", features = ["sync", "macros"], optional = true }
 futures-util = { version = "0.3.25", optional = true }
@@ -43,6 +47,7 @@ winres = "0.1.12"
 default = ["full"]
 full = ["http", "mqtt", "parser"]
 unchecked = ["pbni-rs/unchecked"]
+trace = ["tokio/tracing","console-subscriber"]
 reactor = ["tokio", "futures-util", "windows", "backtrace"]
 
 parser = ["dwparser", "serde_json"]

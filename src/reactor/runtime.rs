@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, sync::Mutex, thread};
+use std::{future::Future, panic, pin::Pin, sync::Mutex, thread};
 use tokio::{
     runtime, sync::{mpsc, oneshot}, task
 };
@@ -6,12 +6,17 @@ use tokio::{
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 
 /// 在后台执行一个异步任务
+#[cfg_attr(feature = "trace", track_caller)]
 pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
 {
     let runtime_tx = Runtime::global_sender();
-    if let Err(e) = runtime_tx.send(RuntimeMessage::Task(Box::pin(fut))) {
+    #[cfg(feature = "trace")]
+    let msg = RuntimeMessage::Task(Box::pin(fut), panic::Location::caller());
+    #[cfg(not(feature = "trace"))]
+    let msg = RuntimeMessage::Task(Box::pin(fut));
+    if let Err(e) = runtime_tx.send(msg) {
         panic!("send message to background failed: {e}");
     }
 }
@@ -21,6 +26,9 @@ pub fn shutdown() { Runtime::drop_global(); }
 
 /// 运行时消息
 enum RuntimeMessage {
+    #[cfg(feature = "trace")]
+    Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>, &'static panic::Location<'static>),
+    #[cfg(not(feature = "trace"))]
     Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
     Stop
 }
@@ -59,9 +67,19 @@ impl Runtime {
         thread::Builder::new()
             .name("bkgnd-rt".to_owned())
             .spawn(move || {
+                #[cfg(feature = "trace")]
+                console_subscriber::init();
                 let runloop = async move {
                     while let Some(msg) = msg_rx.recv().await {
                         match msg {
+                            #[cfg(feature = "trace")]
+                            RuntimeMessage::Task(task, loc) => {
+                                tokio::task::Builder::new()
+                                    .name(&format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                                    .spawn_local(task)
+                                    .unwrap();
+                            },
+                            #[cfg(not(feature = "trace"))]
                             RuntimeMessage::Task(task) => {
                                 task::spawn_local(task);
                             },
@@ -74,7 +92,7 @@ impl Runtime {
                 let local = task::LocalSet::new();
                 //运行
                 rt.block_on(local.run_until(runloop));
-                //rt.block_on(local);
+                rt.block_on(local);
                 //NOTE
                 //运行时可能创建了`blocking`后台线程，此处需要立即退出并且不等待线程结束信号
                 rt.shutdown_background();
