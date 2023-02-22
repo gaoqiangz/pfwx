@@ -3,7 +3,7 @@ use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, Method};
 use std::{
-    collections::HashMap, fs, rc::Rc, sync::{Arc, Mutex as BlockingMutex}, thread
+    collections::HashMap, fs, mem, rc::Rc, sync::{Arc, Mutex as BlockingMutex}, thread
 };
 use tokio::sync::Mutex;
 
@@ -110,6 +110,23 @@ impl HttpClient {
         } else {
             RetCode::E_DATA_NOT_FOUND
         }
+    }
+
+    #[method(name = "CancelAll")]
+    fn cancel_all(&mut self) -> RetCode {
+        let mut pending = self.pending.lock().unwrap();
+        let taked = mem::take(&mut *pending);
+        drop(pending);
+        for (id, (hdl, receive_file)) in taked {
+            if hdl.cancel() {
+                self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
+            }
+            if let Some(file_path) = receive_file {
+                thread::yield_now();
+                let _ = fs::remove_file(file_path);
+            }
+        }
+        RetCode::OK
     }
 
     #[event(name = "OnSuccess")]
