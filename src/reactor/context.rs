@@ -42,6 +42,21 @@ impl SyncContext {
     /// 消息派发器
     pub fn dispatcher(&self) -> Dispatcher { Dispatcher::new(self.inner.hwnd) }
 
+    /// 处理消息
+    pub fn process_message(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DispatchMessageA, PeekMessageA, TranslateMessage, MSG, PM_REMOVE
+        };
+
+        unsafe {
+            let mut msg = MSG::default();
+            if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) == true {
+                TranslateMessage(&mut msg);
+                DispatchMessageA(&msg);
+            }
+        }
+    }
+
     //创建UI线程同步上下文
     fn new(pbsession: Session) -> SyncContext {
         use windows::{

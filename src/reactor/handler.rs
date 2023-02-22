@@ -4,7 +4,7 @@ use super::{
 use futures_util::FutureExt;
 use pbni::pbx::{AliveState, Session};
 use std::{
-    cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, pin::Pin, rc::{Rc, Weak}, task::{ready, Context, Poll}, thread, thread::ThreadId
+    cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, pin::Pin, rc::{Rc, Weak}, task::{ready, Context, Poll}, thread, thread::ThreadId, time::Duration
 };
 use tokio::sync::oneshot;
 
@@ -103,10 +103,6 @@ pub trait Handler: Sized + 'static {
     ///
     /// - `fut` 异步任务
     ///
-    /// # Deadlock
-    ///
-    /// 在`fut`内部请求UI回调将会发生死锁
-    ///
     /// # Returns
     ///
     /// `fut` 任务的执行结果
@@ -115,7 +111,8 @@ pub trait Handler: Sized + 'static {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static
     {
-        let (tx, rx) = oneshot::channel();
+        let sync_ctx = SyncContext::current(self.state().session());
+        let (tx, mut rx) = oneshot::channel();
         //封装异步任务
         let fut = async move {
             match AssertUnwindSafe(fut).catch_unwind().await {
@@ -137,7 +134,17 @@ pub trait Handler: Sized + 'static {
         //执行
         runtime::spawn(fut);
         //阻塞等待执行结果
-        rx.blocking_recv().unwrap()
+        loop {
+            match rx.try_recv() {
+                Ok(rv) => break rv,
+                Err(oneshot::error::TryRecvError::Empty) => {
+                    //处理回调消息
+                    sync_ctx.process_message();
+                    thread::sleep(Duration::from_millis(20));
+                },
+                Err(oneshot::error::TryRecvError::Closed) => panic!("channel was closed")
+            }
+        }
     }
 }
 
