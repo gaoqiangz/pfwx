@@ -1,4 +1,4 @@
-use super::mem::UnsafeBox;
+use super::{mem::UnsafeBox, runtime};
 use pbni::{
     pbx::{AliveState, Session}, pbx_throw
 };
@@ -138,12 +138,14 @@ impl SyncContext {
                                 }
                             },
                         };
-                        pbx_throw!(
-                            session,
-                            "{}\r\nbacktrace:\r\n{:?}",
-                            panic_info,
-                            backtrace::Backtrace::new()
-                        );
+                        if !session.has_exception() {
+                            pbx_throw!(
+                                session,
+                                "{}\r\nbacktrace:\r\n{:?}",
+                                panic_info,
+                                backtrace::Backtrace::new()
+                            );
+                        }
                     }
                 },
                 MessagePayload::Panic(payload) => {
@@ -179,6 +181,9 @@ impl Drop for SyncContextInner {
                     );
                     *atom = 0;
                 }
+                //FIXME
+                //销毁运行时
+                runtime::shutdown();
             }
         }
     }
