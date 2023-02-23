@@ -290,6 +290,9 @@ impl<T: Handler> HandlerInvoker<T> {
         }
     }
 
+    /// 对象是否存活
+    pub fn is_alive(&self) -> bool { self.alive.is_alive() }
+
     /// 发起回调请求给UI线程执行
     ///
     /// # Parameters
@@ -299,8 +302,8 @@ impl<T: Handler> HandlerInvoker<T> {
     ///
     /// # Returns
     ///
-    /// 成功时通过`InvokeJoinHandle`获取`handler`返回值
-    pub async fn invoke<P, H, R>(&self, param: P, handler: H) -> Result<InvokeJoinHandle<R>, InvokeError>
+    /// 通过`InvokeJoinHandle`获取`handler`返回值
+    pub async fn invoke<P, H, R>(&self, param: P, handler: H) -> InvokeJoinHandle<R>
     where
         P: Send + 'static,
         H: FnOnce(&mut T, P) -> R + Send + 'static,
@@ -308,7 +311,7 @@ impl<T: Handler> HandlerInvoker<T> {
     {
         assert_ne!(self.thread_id, thread::current().id());
         if self.alive.is_dead() {
-            return Err(InvokeError::TargetIsDead);
+            return InvokeJoinHandle(None);
         }
         let (tx, rx) = oneshot::channel();
         let handler = unsafe {
@@ -326,9 +329,9 @@ impl<T: Handler> HandlerInvoker<T> {
         };
         let param = UnsafeBox::pack(param).cast::<()>();
         if !self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await {
-            return Err(InvokeError::TargetIsDead);
+            return InvokeJoinHandle(None);
         }
-        Ok(InvokeJoinHandle(rx))
+        InvokeJoinHandle(Some(rx))
     }
 
     /// 阻塞发起回调请求给UI线程执行
@@ -344,8 +347,8 @@ impl<T: Handler> HandlerInvoker<T> {
     ///
     /// # Returns
     ///
-    /// 成功时通过`InvokeJoinHandle`获取`handler`返回值
-    pub fn invoke_blocking<P, H, R>(&self, param: P, handler: H) -> Result<InvokeJoinHandle<R>, InvokeError>
+    /// 通过`InvokeJoinHandle`获取`handler`返回值
+    pub fn invoke_blocking<P, H, R>(&self, param: P, handler: H) -> InvokeJoinHandle<R>
     where
         P: Send + 'static,
         H: FnOnce(&mut T, P) -> R + Send + 'static,
@@ -353,7 +356,7 @@ impl<T: Handler> HandlerInvoker<T> {
     {
         assert_ne!(self.thread_id, thread::current().id());
         if self.alive.is_dead() {
-            return Err(InvokeError::TargetIsDead);
+            return InvokeJoinHandle(None);
         }
         let (tx, rx) = oneshot::channel();
         let handler = unsafe {
@@ -371,9 +374,9 @@ impl<T: Handler> HandlerInvoker<T> {
         };
         let param = UnsafeBox::pack(param).cast::<()>();
         if !self.dsp.dispatch_invoke_blocking(param, handler, self.alive.clone()) {
-            return Err(InvokeError::TargetIsDead);
+            return InvokeJoinHandle(None);
         }
-        Ok(InvokeJoinHandle(rx))
+        InvokeJoinHandle(Some(rx))
     }
 
     /// 派发执行异常信息给UI线程
@@ -409,17 +412,20 @@ impl<T> Clone for HandlerInvoker<T> {
 }
 
 /// UI线程调用返回值接收句柄
-pub struct InvokeJoinHandle<T>(oneshot::Receiver<Option<T>>);
+pub struct InvokeJoinHandle<T>(Option<oneshot::Receiver<Option<T>>>);
 
 impl<T> InvokeJoinHandle<T> {
     pub fn join(self) -> Result<T, InvokeError> {
-        match self.0.blocking_recv() {
-            Ok(Some(rv)) => Ok(rv),
-            Ok(None) => Err(InvokeError::TargetIsDead),
-            Err(_) => {
-                //回调过程发生异常导致`tx`被提前销毁
-                Err(InvokeError::Panic)
-            }
+        match self.0 {
+            Some(rx) => {
+                match rx.blocking_recv() {
+                    Ok(Some(rv)) => Ok(rv),
+                    Ok(None) => Err(InvokeError::TargetIsDead),
+                    //NOTE 回调过程发生异常导致`tx`被提前销毁
+                    Err(_) => Err(InvokeError::Panic)
+                }
+            },
+            None => Err(InvokeError::TargetIsDead)
         }
     }
 }
@@ -428,14 +434,16 @@ impl<T> Future for InvokeJoinHandle<T> {
     type Output = Result<T, InvokeError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.as_mut();
-        let rx = Pin::new(&mut this.0);
-        match ready!(rx.poll(cx)) {
-            Ok(Some(rv)) => Poll::Ready(Ok(rv)),
-            Ok(None) => Poll::Ready(Err(InvokeError::TargetIsDead)),
-            Err(_) => {
-                //回调过程发生异常导致`tx`被提前销毁
-                Poll::Ready(Err(InvokeError::Panic))
-            }
+        match &mut this.0 {
+            Some(rx) => {
+                match ready!(Pin::new(rx).poll(cx)) {
+                    Ok(Some(rv)) => Poll::Ready(Ok(rv)),
+                    Ok(None) => Poll::Ready(Err(InvokeError::TargetIsDead)),
+                    //NOTE 回调过程发生异常导致`tx`被提前销毁
+                    Err(_) => Poll::Ready(Err(InvokeError::Panic))
+                }
+            },
+            None => Poll::Ready(Err(InvokeError::TargetIsDead))
         }
     }
 }

@@ -372,27 +372,23 @@ impl HttpRequest {
                                 //UI线程阻塞时截流，丢弃中间的速率
                                 if matches!(tick_invoke, Either::Left(_)) {
                                     tick_invoke = Either::Right(
-                                        invoker
-                                            .invoke(
-                                                (id, total_size, recv_size, speed),
-                                                |this, (id, total_size, recv_size, speed)| {
-                                                    this.on_recv(
-                                                        id,
-                                                        total_size as pbulong,
-                                                        recv_size as pbulong,
-                                                        speed as pbulong
-                                                    )
-                                                }
-                                            )
-                                            .then(|rv| {
-                                                async {
-                                                    match rv {
-                                                        Ok(handle) => handle.await,
-                                                        Err(e) => Err(e)
+                                        invoker.invoke(
+                                                    (id, total_size, recv_size, speed),
+                                                    |this, (id, total_size, recv_size, speed)| {
+                                                        this.on_recv(
+                                                            id,
+                                                            total_size as pbulong,
+                                                            recv_size as pbulong,
+                                                            speed as pbulong
+                                                        )
                                                     }
-                                                }
-                                            })
-                                            .boxed()
+                                                )
+                                                .then(|rv| {
+                                                    async {
+                                                        rv.await
+                                                    }
+                                                })
+                                                .boxed()
                                     );
                                     if done_flag == DoneFlag::Invoke {
                                         done_flag = DoneFlag::Invoking;
