@@ -48,11 +48,17 @@ impl SyncContext {
             DispatchMessageA, PeekMessageA, TranslateMessage, MSG, PM_REMOVE
         };
 
-        unsafe {
-            let mut msg = MSG::default();
-            if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) == true {
-                TranslateMessage(&mut msg);
-                DispatchMessageA(&msg);
+        loop {
+            unsafe {
+                let mut msg = MSG::default();
+                if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) ==
+                    true
+                {
+                    TranslateMessage(&mut msg);
+                    DispatchMessageA(&msg);
+                } else {
+                    break;
+                }
             }
         }
     }
