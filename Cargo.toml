@@ -26,7 +26,7 @@ console-subscriber = { version = "0.1.8", optional = true }
 # reactor
 tokio = { version = "1.23.0", features = ["sync", "macros"], optional = true }
 futures-util = { version = "0.3.25", optional = true }
-windows = { version = "0.43.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_WindowsProgramming"], optional = true }
+windows = { version = "0.43.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_Security"], optional = true }
 backtrace = { version = "0.3.67", optional = true }
 
 # http
