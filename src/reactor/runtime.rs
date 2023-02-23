@@ -11,50 +11,39 @@ pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
 {
-    let runtime_tx = Runtime::global_sender();
+    let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+    if runtime.is_none() {
+        *runtime = Some(Runtime::new());
+    }
+    let runtime_tx = runtime.as_ref().unwrap().msg_tx.clone().unwrap();
     #[cfg(feature = "trace")]
-    let msg = RuntimeMessage::Task(Box::pin(fut), panic::Location::caller());
+    let msg = Task(Box::pin(fut), panic::Location::caller());
     #[cfg(not(feature = "trace"))]
-    let msg = RuntimeMessage::Task(Box::pin(fut));
+    let msg = Task(Box::pin(fut));
     if let Err(e) = runtime_tx.send(msg) {
         panic!("send message to background failed: {e}");
     }
 }
 
 /// 销毁后台运行时
-pub fn shutdown() { Runtime::drop_global(); }
-
-/// 运行时消息
-enum RuntimeMessage {
-    #[cfg(feature = "trace")]
-    Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>, &'static panic::Location<'static>),
-    #[cfg(not(feature = "trace"))]
-    Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
-    Stop
+pub fn shutdown() {
+    let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+    *runtime = None;
 }
+
+/// 异步任务
+#[cfg(feature = "trace")]
+struct Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>, &'static panic::Location<'static>);
+#[cfg(not(feature = "trace"))]
+struct Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
 
 /// 运行时
 struct Runtime {
-    msg_tx: mpsc::UnboundedSender<RuntimeMessage>,
+    msg_tx: Option<mpsc::UnboundedSender<Task>>,
     stop_rx: Option<oneshot::Receiver<()>>
 }
 
 impl Runtime {
-    /// 获取运行时消息发送通道
-    fn global_sender() -> mpsc::UnboundedSender<RuntimeMessage> {
-        let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
-        if runtime.is_none() {
-            *runtime = Some(Runtime::new());
-        }
-        runtime.as_ref().unwrap().msg_tx.clone()
-    }
-
-    /// 销毁运行时
-    fn drop_global() {
-        let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
-        *runtime = None;
-    }
-
     /// 创建运行时
     fn new() -> Runtime {
         assert!(runtime::Handle::try_current().is_err());
@@ -67,23 +56,37 @@ impl Runtime {
         thread::Builder::new()
             .name("bkgnd-rt".to_owned())
             .spawn(move || {
-                #[cfg(feature = "trace")]
-                console_subscriber::init();
-                let runloop = async move {
-                    while let Some(msg) = msg_rx.recv().await {
-                        match msg {
-                            #[cfg(feature = "trace")]
-                            RuntimeMessage::Task(task, loc) => {
-                                tokio::task::Builder::new()
-                                    .name(&format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
-                                    .spawn_local(task)
-                                    .unwrap();
-                            },
-                            #[cfg(not(feature = "trace"))]
-                            RuntimeMessage::Task(task) => {
-                                task::spawn_local(task);
-                            },
-                            RuntimeMessage::Stop => break
+                let runloop = {
+                    #[cfg(feature = "trace")]
+                    {
+                        use tracing_subscriber::prelude::*;
+                        let (layer, server) = console_subscriber::Builder::default().build();
+                        tracing_subscriber::registry().with(layer).init();
+                        async move {
+                            tokio::pin! {
+                            let server = server.serve();
+                            }
+                            loop {
+                                tokio::select! {
+                                    msg = msg_rx.recv() => {
+                                        if let Some(Task(task, loc)) = msg {
+                                            task::Builder::new()
+                                                .name(&format!("{}:{}", loc.file(), loc.line()))
+                                                .spawn_local(task)
+                                                .unwrap();
+                                        } else {
+                                            break;
+                                        }
+                                    },
+                                    _ = &mut server => {}
+                                }
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "trace"))]
+                    async move {
+                        while let Some(Task(task)) = msg_rx.recv().await {
+                            task::spawn_local(task);
                         }
                     }
                 };
@@ -102,7 +105,7 @@ impl Runtime {
             .expect("create bkgnd-rt thread");
 
         Runtime {
-            msg_tx,
+            msg_tx: Some(msg_tx),
             stop_rx: Some(stop_rx)
         }
     }
@@ -110,7 +113,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        let _ = self.msg_tx.send(RuntimeMessage::Stop);
+        self.msg_tx.take();
         //NOTE 不能直接WAIT线程对象，因为此时处于TLS销毁流程中，OS加了保护锁防止同时销毁
         self.stop_rx.take().unwrap().blocking_recv().unwrap();
         //FIXME

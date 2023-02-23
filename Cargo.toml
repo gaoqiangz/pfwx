@@ -20,6 +20,7 @@ lazy_static = "1.4.0"
 
 # trace
 
+tracing-subscriber = { version = "0.3.16", optional = true }
 console-subscriber = { version = "0.1.8", optional = true }
 
 # reactor
@@ -47,7 +48,7 @@ winres = "0.1.12"
 default = ["full"]
 full = ["http", "mqtt", "parser"]
 unchecked = ["pbni-rs/unchecked"]
-trace = ["tokio/tracing","console-subscriber"]
+trace = ["tracing-subscriber", "console-subscriber", "tokio/tracing"]
 reactor = ["tokio", "futures-util", "windows", "backtrace"]
 
 parser = ["dwparser", "serde_json"]
