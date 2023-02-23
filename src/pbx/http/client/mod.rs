@@ -2,9 +2,7 @@ use crate::prelude::*;
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, Method};
-use std::{
-    collections::HashMap, fs, mem, rc::Rc, sync::{Arc, Mutex as BlockingMutex}, thread
-};
+use std::{cell::RefCell, collections::HashMap, fs, mem, rc::Rc, sync::Arc, thread};
 use tokio::sync::Mutex;
 
 mod config;
@@ -23,7 +21,7 @@ struct HttpClient {
     client: Client,
     cfg: Rc<HttpClientRuntimeConfig>,
     seq_lock: Arc<Mutex<()>>,
-    pending: Rc<BlockingMutex<HashMap<pbulong, (CancelHandle, Option<String>)>>>
+    pending: Rc<RefCell<HashMap<pbulong, (CancelHandle, Option<String>)>>>
 }
 
 #[nonvisualobject(name = "nx_httpclient")]
@@ -34,7 +32,7 @@ impl HttpClient {
         let client = Client::new();
         let cfg = Rc::new(HttpClientRuntimeConfig::default());
         let seq_lock = Arc::new(Mutex::new(()));
-        let pending = Rc::new(BlockingMutex::new(HashMap::new()));
+        let pending = Rc::new(RefCell::new(HashMap::new()));
         HttpClient {
             state,
             client,
@@ -45,8 +43,10 @@ impl HttpClient {
     }
 
     fn push_pending(&self, id: pbulong, cancel_hdl: CancelHandle, receive_file: Option<String>) {
-        let mut pending = self.pending.lock().unwrap();
-        if let Some((hdl, receive_file)) = pending.insert(id, (cancel_hdl, receive_file)) {
+        let mut pending = self.pending.borrow_mut();
+        let old = pending.insert(id, (cancel_hdl, receive_file));
+        drop(pending);
+        if let Some((hdl, receive_file)) = old {
             hdl.cancel();
             if let Some(file_path) = receive_file {
                 thread::yield_now();
@@ -96,9 +96,10 @@ impl HttpClient {
 
     #[method(name = "Cancel")]
     fn cancel(&mut self, id: pbulong) -> RetCode {
-        let mut pending = self.pending.lock().unwrap();
-        if let Some((hdl, receive_file)) = pending.remove(&id) {
-            drop(pending);
+        let mut pending = self.pending.borrow_mut();
+        let removed = pending.remove(&id);
+        drop(pending);
+        if let Some((hdl, receive_file)) = removed {
             if hdl.cancel() {
                 self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
             }
@@ -114,7 +115,7 @@ impl HttpClient {
 
     #[method(name = "CancelAll")]
     fn cancel_all(&mut self) -> RetCode {
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = self.pending.borrow_mut();
         let taked = mem::take(&mut *pending);
         drop(pending);
         for (id, (hdl, receive_file)) in taked {
@@ -145,4 +146,19 @@ impl HttpClient {
 impl Handler for HttpClient {
     fn state(&self) -> &HandlerState { &self.state }
     fn alive_state(&self) -> AliveState { self.get_alive_state() }
+}
+
+impl Drop for HttpClient {
+    fn drop(&mut self) {
+        let mut pending = self.pending.borrow_mut();
+        let taked = mem::take(&mut *pending);
+        drop(pending);
+        for (_, (hdl, receive_file)) in taked {
+            hdl.cancel();
+            if let Some(file_path) = receive_file {
+                thread::yield_now();
+                let _ = fs::remove_file(file_path);
+            }
+        }
+    }
 }
