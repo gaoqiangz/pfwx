@@ -4,29 +4,29 @@ use reqwest::{
 };
 use std::time::Duration;
 
-pub struct HttpClientRuntimeConfig {
-    /// 异步请求-保证按调用顺序执行
-    pub guarantee_order: bool
+pub struct HttpClientConfigEx {
+    /// 异步请求-最大并发数
+    pub max_concurrency: usize
 }
 
-impl Default for HttpClientRuntimeConfig {
+impl Default for HttpClientConfigEx {
     fn default() -> Self {
-        HttpClientRuntimeConfig {
-            guarantee_order: true
+        HttpClientConfigEx {
+            max_concurrency: 256
         }
     }
 }
 
 pub struct HttpClientConfig {
     builder: Option<ClientBuilder>,
-    rt_cfg: Option<HttpClientRuntimeConfig>
+    cfg: Option<HttpClientConfigEx>
 }
 
 impl Default for HttpClientConfig {
     fn default() -> Self {
         HttpClientConfig {
             builder: Some(HttpClientConfig::default_builder()),
-            rt_cfg: Some(HttpClientRuntimeConfig::default())
+            cfg: Some(HttpClientConfigEx::default())
         }
     }
 }
@@ -40,9 +40,9 @@ impl HttpClientConfig {
     /// # Notice
     ///
     /// 仅能调用一次
-    pub fn build(&mut self) -> reqwest::Result<(Client, HttpClientRuntimeConfig)> {
+    pub fn build(&mut self) -> reqwest::Result<(Client, HttpClientConfigEx)> {
         let builder = self.builder.replace(Self::default_builder()).unwrap();
-        let rt_cfg = self.rt_cfg.replace(HttpClientRuntimeConfig::default()).unwrap();
+        let rt_cfg = self.cfg.replace(HttpClientConfigEx::default()).unwrap();
         let client = builder.build()?;
         Ok((client, rt_cfg))
     }
@@ -168,11 +168,11 @@ impl HttpClientConfig {
         self
     }
 
-    #[method(name = "SetGuaranteeOrder")]
-    fn guarantee_order(&mut self, enabled: bool) -> &mut Self {
-        let mut rt_cfg = self.rt_cfg.take().unwrap();
-        rt_cfg.guarantee_order = enabled;
-        self.rt_cfg.replace(rt_cfg);
+    #[method(name = "SetConcurrency")]
+    fn concurrency(&mut self, max_concurrency: u32) -> &mut Self {
+        let mut rt_cfg = self.cfg.take().unwrap();
+        rt_cfg.max_concurrency = max_concurrency as usize;
+        self.cfg.replace(rt_cfg);
         self
     }
 }

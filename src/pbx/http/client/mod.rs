@@ -3,7 +3,7 @@ use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, Method};
 use std::{cell::RefCell, collections::HashMap, fs, mem, rc::Rc, sync::Arc, thread};
-use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 
 mod config;
 mod response;
@@ -12,15 +12,14 @@ mod form;
 mod multipart;
 mod cookie;
 
-use config::{HttpClientConfig, HttpClientRuntimeConfig};
+use config::HttpClientConfig;
 use request::HttpRequest;
 use response::{HttpResponse, HttpResponseKind};
 
 struct HttpClient {
     state: HandlerState,
     client: Client,
-    cfg: Rc<HttpClientRuntimeConfig>,
-    seq_lock: Arc<Mutex<()>>,
+    semaphore: Arc<Semaphore>,
     pending: Rc<RefCell<HashMap<pbulong, (CancelHandle, Option<String>)>>>
 }
 
@@ -30,14 +29,12 @@ impl HttpClient {
     fn new(session: Session, _object: Object) -> Self {
         let state = HandlerState::new(session);
         let client = Client::new();
-        let cfg = Rc::new(HttpClientRuntimeConfig::default());
-        let seq_lock = Arc::new(Mutex::new(()));
+        let semaphore = Arc::new(Semaphore::new(256));
         let pending = Rc::new(RefCell::new(HashMap::new()));
         HttpClient {
             state,
             client,
-            cfg,
-            seq_lock,
+            semaphore,
             pending
         }
     }
@@ -77,9 +74,9 @@ impl HttpClient {
 
     #[method(name = "Reconfig")]
     fn reconfig(&mut self, cfg: &mut HttpClientConfig) -> RetCode {
-        let (client, rt_cfg) = cfg.build()?;
+        let (client, cfg) = cfg.build()?;
         self.client = client;
-        self.cfg = Rc::new(rt_cfg);
+        self.semaphore = Arc::new(Semaphore::new(cfg.max_concurrency.max(1)));
         RetCode::OK
     }
 

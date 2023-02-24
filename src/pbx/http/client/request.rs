@@ -202,11 +202,7 @@ impl HttpRequest {
             let client = client.get_native_ref::<HttpClient>().expect("invalid httpclient");
             let recv_file_path = self.recv_file_path.clone();
             //执行顺序锁
-            let lock = if client.cfg.guarantee_order {
-                Some(client.seq_lock.clone())
-            } else {
-                None
-            };
+            let semaphore = client.semaphore.clone();
             let fut = if progress.unwrap_or_default() {
                 Either::Left(self.send_progress_impl(&client, builder.unwrap(), id, recv_file_path.clone()))
             } else {
@@ -214,11 +210,7 @@ impl HttpRequest {
             };
             let cancel_hdl = client.spawn(
                 async move {
-                    let _lock = if let Some(lock) = lock.as_ref() {
-                        Some(lock.lock().await)
-                    } else {
-                        None
-                    };
+                    let _permit = semaphore.acquire().await;
                     let inst = Instant::now();
                     let resp = fut.await;
                     (id, resp, inst.elapsed().as_millis())
