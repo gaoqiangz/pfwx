@@ -12,7 +12,7 @@ pub struct HttpClientConfigEx {
 impl Default for HttpClientConfigEx {
     fn default() -> Self {
         HttpClientConfigEx {
-            max_concurrency: 256
+            max_concurrency: default::MAX_CONCURRENCY
         }
     }
 }
@@ -171,8 +171,14 @@ impl HttpClientConfig {
     #[method(name = "SetConcurrency")]
     fn concurrency(&mut self, max_concurrency: u32) -> &mut Self {
         let mut rt_cfg = self.cfg.take().unwrap();
-        rt_cfg.max_concurrency = max_concurrency as usize;
+        rt_cfg.max_concurrency = max_concurrency.max(1) as usize;
         self.cfg.replace(rt_cfg);
         self
     }
+}
+
+/// 默认配置
+pub mod default {
+    /// 异步请求-最大并发数
+    pub const MAX_CONCURRENCY: usize = 16;
 }
