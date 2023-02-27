@@ -29,7 +29,7 @@ impl HttpClient {
     fn new(session: Session, _object: Object) -> Self {
         let state = HandlerState::new(session);
         let client = Client::new();
-        let semaphore = Arc::new(Semaphore::new(256));
+        let semaphore = Arc::new(Semaphore::new(config::default::MAX_CONCURRENCY));
         let pending = Rc::new(RefCell::new(HashMap::new()));
         HttpClient {
             state,
@@ -43,16 +43,15 @@ impl HttpClient {
         let mut pending = self.pending.borrow_mut();
         let old = pending.insert(id, (cancel_hdl, receive_file));
         drop(pending);
-        if let Some((hdl, receive_file)) = old {
+        if let Some((hdl, _)) = old {
             hdl.cancel();
-            if let Some(file_path) = receive_file {
-                thread::yield_now();
-                let _ = fs::remove_file(file_path);
-            }
         }
     }
 
     fn complete(&mut self, id: pbulong, resp: HttpResponseKind, elapsed: u128, receive_file: Option<String>) {
+        let mut pending = self.pending.borrow_mut();
+        pending.remove(&id);
+        drop(pending);
         let is_cancelled = resp.is_cancelled();
         let is_succ = resp.is_succ();
         let resp = HttpResponse::new_object_modify(self.get_session(), |obj| {
@@ -76,9 +75,12 @@ impl HttpClient {
     fn reconfig(&mut self, cfg: &mut HttpClientConfig) -> RetCode {
         let (client, cfg) = cfg.build()?;
         self.client = client;
-        self.semaphore = Arc::new(Semaphore::new(cfg.max_concurrency.max(1)));
+        self.semaphore = Arc::new(Semaphore::new(cfg.max_concurrency));
         RetCode::OK
     }
+
+    #[method(name = "HasAsyncRequest")]
+    fn has_async_request(&self) -> bool { !self.pending.borrow().is_empty() }
 
     #[method(name = "Request")]
     fn request(&mut self, method: String, url: String) -> Object {
@@ -99,10 +101,10 @@ impl HttpClient {
         if let Some((hdl, receive_file)) = removed {
             if hdl.cancel() {
                 self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
-            }
-            if let Some(file_path) = receive_file {
-                thread::yield_now();
-                let _ = fs::remove_file(file_path);
+                if let Some(file_path) = receive_file {
+                    thread::yield_now();
+                    let _ = fs::remove_file(file_path);
+                }
             }
             RetCode::OK
         } else {
@@ -118,10 +120,10 @@ impl HttpClient {
         for (id, (hdl, receive_file)) in taked {
             if hdl.cancel() {
                 self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
-            }
-            if let Some(file_path) = receive_file {
-                thread::yield_now();
-                let _ = fs::remove_file(file_path);
+                if let Some(file_path) = receive_file {
+                    thread::yield_now();
+                    let _ = fs::remove_file(file_path);
+                }
             }
         }
         RetCode::OK
@@ -150,12 +152,8 @@ impl Drop for HttpClient {
         let mut pending = self.pending.borrow_mut();
         let taked = mem::take(&mut *pending);
         drop(pending);
-        for (_, (hdl, receive_file)) in taked {
+        for (_, (hdl, _)) in taked {
             hdl.cancel();
-            if let Some(file_path) = receive_file {
-                thread::yield_now();
-                let _ = fs::remove_file(file_path);
-            }
         }
     }
 }
