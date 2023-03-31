@@ -129,7 +129,8 @@ impl Drop for Runtime {
         let thrd_hdl = self.thrd_hdl.take().unwrap();
         let rc = unsafe { WaitForSingleObject(HANDLE(thrd_hdl.as_raw_handle() as _), 0) };
         if rc == WAIT_TIMEOUT {
-            //NOTE 不能直接WAIT线程对象，因为此时处于TLS销毁流程中，OS加了保护锁防止同时销毁
+            //NOTE 不能直接WAIT线程对象，因为此时可能正处于TLS销毁流程中，OS加了保护锁防止不同线程同时进入`DllMain`
+            //issue: https://github.com/rust-lang/rust/issues/74875
             self.stop_rx.take().unwrap().blocking_recv().unwrap();
             //FIXME
             //短暂挂起使线程调用栈完全退出
