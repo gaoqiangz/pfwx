@@ -75,9 +75,18 @@ struct Api {
 
 impl Api {
     unsafe fn load() -> &'static Api {
-        type GetApiFn = extern "system" fn() -> *const Api;
-        let lib = libloading::Library::new("pfw.dll").expect("Cannot load module pfw.dll");
-        let api_fn = lib.get::<GetApiFn>(b"pfwAPI").expect("Cannot find entry symbol 'pfwAPI' at pfw.dll");
+        static mut LIB: Option<libloading::Library> = None;
+
+        type FnGetApi = extern "system" fn() -> *const Api;
+
+        if LIB.is_none() {
+            unsafe {
+                LIB = Some(libloading::Library::new("pfw.dll").expect("Cannot load module pfw.dll"));
+            }
+        }
+
+        let lib = LIB.as_ref().unwrap();
+        let api_fn = lib.get::<FnGetApi>(b"pfwAPI").expect("Cannot find entry symbol 'pfwAPI' at pfw.dll");
         &*api_fn()
     }
 }
