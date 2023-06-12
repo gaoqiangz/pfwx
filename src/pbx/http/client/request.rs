@@ -232,9 +232,8 @@ impl HttpRequest {
         builder: RequestBuilder,
         recv_file_path: Option<String>
     ) -> impl Future<Output = HttpResponseKind> {
-        let sending = builder.send();
         async move {
-            match sending.await {
+            match builder.send().await {
                 Ok(mut resp) => {
                     let status = resp.status();
                     let headers = resp.headers().clone();
@@ -284,9 +283,8 @@ impl HttpRequest {
         recv_file_path: Option<String>
     ) -> impl Future<Output = HttpResponseKind> {
         let invoker = client.invoker();
-        let sending = builder.send();
         async move {
-            match sending.await {
+            match builder.send().await {
                 Ok(mut resp) => {
                     let status = resp.status();
                     let headers = resp.headers().clone();
