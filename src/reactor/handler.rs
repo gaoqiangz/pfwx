@@ -49,6 +49,12 @@ pub trait Handler: Sized + 'static {
                 //删除取消ID成功说明任务没有被取消
                 if this.state().remove_cancel_id(cancel_id) {
                     handler(this, param);
+                } else {
+                    #[cfg(feature = "trace")]
+                    {
+                        let loc = std::panic::Location::caller();
+                        trace!("Task was cancelled ({}:{})", loc.file(), loc.line());
+                    }
                 }
             }
         };
@@ -61,11 +67,15 @@ pub trait Handler: Sized + 'static {
             loop {
                 tokio::select! {
                     rv = &mut fut => {
-                        cancel_rx.close();
                         match rv {
                             Ok(rv) => {
                                 //检查取消信号
                                 if cancel_rx.try_recv().is_ok() {
+                                    #[cfg(feature = "trace")]
+                                    {
+                                        let loc = std::panic::Location::caller();
+                                        trace!("Task was cancelled ({}:{})", loc.file(), loc.line());
+                                    }
                                     break;
                                 }
                                 let _ = invoker.invoke(rv, handler).await;
@@ -87,7 +97,14 @@ pub trait Handler: Sized + 'static {
                         }
                         break;
                     },
-                    _ = &mut cancel_rx => break,
+                    _ = &mut cancel_rx => {
+                        #[cfg(feature = "trace")]
+                        {
+                            let loc = std::panic::Location::caller();
+                            trace!("Task was cancelled ({}:{})", loc.file(), loc.line());
+                        }
+                        break
+                    },
                 }
             }
         };
@@ -311,6 +328,8 @@ impl<T: Handler> HandlerInvoker<T> {
     {
         assert_ne!(self.thread_id, thread::current().id());
         if self.alive.is_dead() {
+            #[cfg(feature = "trace")]
+            trace!("Object is dead");
             return InvokeJoinHandle(None);
         }
         let (tx, rx) = oneshot::channel();
@@ -329,6 +348,8 @@ impl<T: Handler> HandlerInvoker<T> {
         };
         let param = UnsafeBox::pack(param).cast::<()>();
         if !self.dsp.dispatch_invoke(param, handler, self.alive.clone()).await {
+            #[cfg(feature = "trace")]
+            trace!("Dispatch invoke failed");
             return InvokeJoinHandle(None);
         }
         InvokeJoinHandle(Some(rx))
@@ -356,6 +377,8 @@ impl<T: Handler> HandlerInvoker<T> {
     {
         assert_ne!(self.thread_id, thread::current().id());
         if self.alive.is_dead() {
+            #[cfg(feature = "trace")]
+            trace!("Object is dead");
             return InvokeJoinHandle(None);
         }
         let (tx, rx) = oneshot::channel();
@@ -374,6 +397,8 @@ impl<T: Handler> HandlerInvoker<T> {
         };
         let param = UnsafeBox::pack(param).cast::<()>();
         if !self.dsp.dispatch_invoke_blocking(param, handler, self.alive.clone()) {
+            #[cfg(feature = "trace")]
+            trace!("Dispatch invoke failed");
             return InvokeJoinHandle(None);
         }
         InvokeJoinHandle(Some(rx))

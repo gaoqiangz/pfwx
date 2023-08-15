@@ -2,6 +2,10 @@
 #![allow(dead_code)]
 #![feature(try_trait_v2)]
 
+#[cfg(feature = "trace")]
+#[macro_use]
+extern crate tracing;
+
 mod base;
 mod pbx;
 #[cfg(feature = "reactor")]

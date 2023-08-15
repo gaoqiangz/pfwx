@@ -2,7 +2,7 @@ use std::{
     future::Future, panic, pin::Pin, sync::Mutex, thread::{self, JoinHandle}, time::Duration
 };
 use tokio::{
-    runtime, sync::{mpsc, oneshot}, task
+    runtime, sync::{mpsc, mpsc::UnboundedReceiver, oneshot}, task
 };
 
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
@@ -17,7 +17,7 @@ where
     if runtime.is_none() {
         *runtime = Some(Runtime::new());
     }
-    let runtime_tx = runtime.as_ref().unwrap().msg_tx.clone().unwrap();
+    let runtime_tx = runtime.as_ref().unwrap().msg_tx.as_ref().unwrap();
     #[cfg(feature = "trace")]
     let msg = Task(Box::pin(fut), panic::Location::caller());
     #[cfg(not(feature = "trace"))]
@@ -47,52 +47,120 @@ struct Runtime {
 }
 
 impl Runtime {
-    /// 创建运行时
+    /// 创建运行时-支持日志调试
+    #[cfg(feature = "trace")]
     fn new() -> Runtime {
+        use std::{
+            io::{Result as IoResult, Write}, str::from_utf8
+        };
+        use tracing::level_filters::LevelFilter;
+        use tracing_subscriber::{filter, fmt, fmt::format::FmtSpan, prelude::*};
+        use windows::{core::PCWSTR, Win32::System::Diagnostics::Debug::*};
+
+        let filter = filter::Targets::default()
+            .with_default(LevelFilter::OFF)
+            .with_target(env!("CARGO_PKG_NAME"), LevelFilter::TRACE);
+
+        //Log file
+        let file_appender = tracing_appender::rolling::never("", concat!(env!("CARGO_PKG_NAME"), ".log"));
+        let file = fmt::layer()
+            .with_ansi(false)
+            .with_span_events(FmtSpan::NONE)
+            .with_line_number(true)
+            .with_thread_names(true)
+            .with_thread_ids(true)
+            .with_writer(file_appender)
+            .with_filter(filter.clone());
+        //WinDBG
+        struct OutputDebugString;
+        impl Write for OutputDebugString {
+            fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+                unsafe {
+                    if let Ok(buf) = from_utf8(buf) {
+                        let buf = widestring::U16CString::from_str_unchecked(buf);
+                        OutputDebugStringW(PCWSTR::from_raw(buf.as_ptr()));
+                    }
+                }
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> IoResult<()> { Ok(()) }
+        }
+        let dbg = fmt::layer()
+            .with_ansi(false)
+            .with_span_events(FmtSpan::NONE)
+            .with_line_number(true)
+            .with_thread_names(true)
+            .with_thread_ids(true)
+            .with_writer(|| OutputDebugString)
+            .with_filter(filter.clone());
+        //Console
+        let (console, server) = console_subscriber::Builder::default().build();
+
+        tracing_subscriber::registry().with(file).with(dbg).with(console).init();
+
+        Self::startup_with_trace(server)
+    }
+
+    /// 创建运行时
+    #[cfg(not(feature = "trace"))]
+    fn new() -> Runtime { Self::startup_without_trace() }
+
+    /// 启动运行时
+    #[cfg(feature = "trace")]
+    fn startup_with_trace(server: console_subscriber::Server) -> Runtime {
+        Self::startup(|mut msg_rx| {
+            async move {
+                tokio::pin! {
+                let server = server.serve();
+                }
+                loop {
+                    tokio::select! {
+                        msg = msg_rx.recv() => {
+                            if let Some(Task(task, loc)) = msg {
+                                task::Builder::new()
+                                    .name(&format!("{}:{}", loc.file(), loc.line()))
+                                    .spawn_local(task)
+                                    .unwrap();
+                            } else {
+                                break;
+                            }
+                        },
+                        _ = &mut server => {}
+                    }
+                }
+            }
+        })
+    }
+
+    /// 启动运行时
+    #[cfg(not(feature = "trace"))]
+    fn startup_without_trace() -> Runtime {
+        Self::startup(|mut msg_rx| {
+            async move {
+                while let Some(Task(task)) = msg_rx.recv().await {
+                    task::spawn_local(task);
+                }
+            }
+        })
+    }
+
+    /// 启动运行时
+    fn startup<F, R>(new_runloop: F) -> Runtime
+    where
+        F: FnOnce(UnboundedReceiver<Task>) -> R,
+        R: Future + Send + 'static
+    {
         assert!(runtime::Handle::try_current().is_err());
         //退出信号
         let (stop_tx, stop_rx) = oneshot::channel();
         //消息通道
-        let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
+        let (msg_tx, msg_rx) = mpsc::unbounded_channel();
+        let runloop = new_runloop(msg_rx);
 
         //创建后台线程
         let thrd_hdl = thread::Builder::new()
             .name("bkgnd-rt".to_owned())
             .spawn(move || {
-                let runloop = {
-                    #[cfg(feature = "trace")]
-                    {
-                        use tracing_subscriber::prelude::*;
-                        let (layer, server) = console_subscriber::Builder::default().build();
-                        tracing_subscriber::registry().with(layer).init();
-                        async move {
-                            tokio::pin! {
-                            let server = server.serve();
-                            }
-                            loop {
-                                tokio::select! {
-                                    msg = msg_rx.recv() => {
-                                        if let Some(Task(task, loc)) = msg {
-                                            task::Builder::new()
-                                                .name(&format!("{}:{}", loc.file(), loc.line()))
-                                                .spawn_local(task)
-                                                .unwrap();
-                                        } else {
-                                            break;
-                                        }
-                                    },
-                                    _ = &mut server => {}
-                                }
-                            }
-                        }
-                    }
-                    #[cfg(not(feature = "trace"))]
-                    async move {
-                        while let Some(Task(task)) = msg_rx.recv().await {
-                            task::spawn_local(task);
-                        }
-                    }
-                };
                 //单线程运行时
                 let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
                 let local = task::LocalSet::new();

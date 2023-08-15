@@ -10,7 +10,7 @@ use std::{
 use tokio::{sync::oneshot, time};
 use windows::{
     core::{s, PCSTR}, Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM}, System::LibraryLoader::GetModuleHandleA, UI::WindowsAndMessaging::WM_USER
+        Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM}, System::LibraryLoader::GetModuleHandleA, UI::WindowsAndMessaging::WM_USER
     }
 };
 
@@ -276,6 +276,8 @@ impl Dispatcher {
                                 if let MessagePayload::Invoke(payload) = msg_pack.payload {
                                     (payload.handler)(payload.param, false);
                                 }
+                                #[cfg(feature = "trace")]
+                                warn!("Context window was destroyed");
                                 return false;
                             }
                         }
@@ -338,6 +340,8 @@ impl Dispatcher {
                         if let MessagePayload::Invoke(payload) = msg_pack.payload {
                             (payload.handler)(payload.param, false);
                         }
+                        #[cfg(feature = "trace")]
+                        warn!("Context window was destroyed");
                         return false;
                     }
                 }
@@ -353,7 +357,7 @@ impl Dispatcher {
         &self,
         payload: MessagePayload
     ) -> Option<(oneshot::Receiver<()>, Option<AliveState>, UnsafeBox<MessagePack>)> {
-        use windows::Win32::UI::WindowsAndMessaging::PostMessageA;
+        use windows::Win32::{Foundation::ERROR_NOT_ENOUGH_QUOTA, UI::WindowsAndMessaging::PostMessageA};
 
         let alive = if let MessagePayload::Invoke(payload) = &payload {
             Some(payload.alive.clone())
@@ -368,14 +372,30 @@ impl Dispatcher {
             tx
         });
 
-        unsafe {
-            if PostMessageA(self.hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) == false {
-                //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
-                let msg_pack = msg_pack.unpack();
-                if let MessagePayload::Invoke(payload) = msg_pack.payload {
-                    (payload.handler)(payload.param, false);
+        loop {
+            unsafe {
+                if PostMessageA(self.hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) ==
+                    false
+                {
+                    //消息队列满了
+                    if GetLastError() == ERROR_NOT_ENOUGH_QUOTA {
+                        #[cfg(feature = "trace")]
+                        warn!("Windows message queue is full");
+                        //等待后重试
+                        thread::sleep(time::Duration::from_millis(100));
+                        continue;
+                    }
+                    //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
+                    let msg_pack = msg_pack.unpack();
+                    if let MessagePayload::Invoke(payload) = msg_pack.payload {
+                        (payload.handler)(payload.param, false);
+                    }
+                    #[cfg(feature = "trace")]
+                    warn!("PostMessage to the context window failed");
+                    return None;
+                } else {
+                    break;
                 }
-                return None;
             }
         }
 
