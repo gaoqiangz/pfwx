@@ -4,10 +4,12 @@ use pbni::{
 };
 use std::{
     cell::RefCell, mem, panic::{self, AssertUnwindSafe}, rc::Rc, sync::{
-        atomic::{AtomicUsize, Ordering}, Mutex
+        atomic::{AtomicUsize, Ordering}, Arc, Mutex
     }, thread
 };
-use tokio::{sync::oneshot, time};
+use tokio::{
+    sync::{oneshot, Mutex as AsyncMutex}, time
+};
 use windows::{
     core::{s, PCSTR}, Win32::{
         Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM}, System::LibraryLoader::GetModuleHandleA, UI::WindowsAndMessaging::WM_USER
@@ -24,7 +26,8 @@ const WM_SYNC_CONTEXT: u32 = WM_USER + 0xff00;
 /// UI线程同步上下文
 #[derive(Clone)]
 pub struct SyncContext {
-    inner: Rc<SyncContextInner>
+    inner: Rc<SyncContextInner>,
+    hwnd: Arc<AsyncMutex<HWND>>
 }
 
 impl SyncContext {
@@ -37,30 +40,6 @@ impl SyncContext {
             }
             current.as_ref().unwrap().clone()
         })
-    }
-
-    /// 消息派发器
-    pub fn dispatcher(&self) -> Dispatcher { Dispatcher::new(self.inner.hwnd) }
-
-    /// 处理消息
-    pub fn process_message(&self) {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            DispatchMessageA, PeekMessageA, TranslateMessage, MSG, PM_REMOVE
-        };
-
-        loop {
-            unsafe {
-                let mut msg = MSG::default();
-                if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) ==
-                    true
-                {
-                    TranslateMessage(&mut msg);
-                    DispatchMessageA(&msg);
-                } else {
-                    break;
-                }
-            }
-        }
     }
 
     //创建UI线程同步上下文
@@ -112,11 +91,39 @@ impl SyncContext {
                 hwnd,
                 pbsession
             });
+
             //绑定上下文
             SetWindowLongPtrA(hwnd, GWL_USERDATA, inner.as_ref() as *const SyncContextInner as _);
 
+            let hwnd = Arc::new(AsyncMutex::new(hwnd));
+
             SyncContext {
-                inner
+                inner,
+                hwnd
+            }
+        }
+    }
+
+    /// 消息派发器
+    pub fn dispatcher(&self) -> Dispatcher { Dispatcher::new(self.hwnd.clone()) }
+
+    /// 处理消息
+    pub fn process_message(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DispatchMessageA, PeekMessageA, TranslateMessage, MSG, PM_REMOVE
+        };
+
+        loop {
+            unsafe {
+                let mut msg = MSG::default();
+                if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) ==
+                    true
+                {
+                    TranslateMessage(&mut msg);
+                    DispatchMessageA(&msg);
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -165,6 +172,7 @@ impl SyncContext {
     }
 }
 
+//销毁时回收线程资源
 struct SyncContextInner {
     hwnd: HWND,
     pbsession: Session
@@ -222,11 +230,12 @@ struct PayloadPanic {
 /// 消息派发器
 #[derive(Clone)]
 pub struct Dispatcher {
-    hwnd: HWND
+    //加锁缓解UI线程出现消息积压，避免系统消息队列溢出，节省系统资源
+    hwnd: Arc<AsyncMutex<HWND>>
 }
 
 impl Dispatcher {
-    fn new(hwnd: HWND) -> Dispatcher {
+    fn new(hwnd: Arc<AsyncMutex<HWND>>) -> Dispatcher {
         Dispatcher {
             hwnd
         }
@@ -259,14 +268,16 @@ impl Dispatcher {
     async fn dispatch(&self, payload: MessagePayload) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
-        if let Some((mut rx, alive, msg_pack)) = self.post_message(payload) {
+        let hwnd = self.hwnd.lock().await;
+
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(*hwnd, payload) {
             //等待消息被接收
             loop {
                 tokio::select! {
                     _ = &mut rx => return true,
                     _ = time::sleep(time::Duration::from_millis(100)) => {
                         unsafe {
-                            if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false {
+                            if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(*hwnd) == false {
                                 //需要再次检查信号，避免目标销毁前接收了消息
                                 if rx.try_recv().is_ok() {
                                     return true;
@@ -326,15 +337,16 @@ impl Dispatcher {
     fn dispatch_blocking(&self, payload: MessagePayload) -> bool {
         use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
-        if let Some((mut rx, alive, msg_pack)) = self.post_message(payload) {
+        let hwnd = self.hwnd.blocking_lock();
+
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(*hwnd, payload) {
             //等待消息被接收
             loop {
                 if rx.try_recv().is_ok() {
                     return true;
                 }
                 unsafe {
-                    if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() || IsWindow(self.hwnd) == false
-                    {
+                    if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() || IsWindow(*hwnd) == false {
                         //接收目标被销毁，需要释放内存
                         let msg_pack = msg_pack.unpack();
                         if let MessagePayload::Invoke(payload) = msg_pack.payload {
@@ -355,6 +367,7 @@ impl Dispatcher {
     /// 派发消息
     fn post_message(
         &self,
+        hwnd: HWND,
         payload: MessagePayload
     ) -> Option<(oneshot::Receiver<()>, Option<AliveState>, UnsafeBox<MessagePack>)> {
         use windows::Win32::{Foundation::ERROR_NOT_ENOUGH_QUOTA, UI::WindowsAndMessaging::PostMessageA};
@@ -374,9 +387,7 @@ impl Dispatcher {
 
         loop {
             unsafe {
-                if PostMessageA(self.hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) ==
-                    false
-                {
+                if PostMessageA(hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) == false {
                     //消息队列满了
                     if GetLastError() == ERROR_NOT_ENOUGH_QUOTA {
                         #[cfg(feature = "trace")]
