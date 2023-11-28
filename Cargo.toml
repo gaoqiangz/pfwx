@@ -91,8 +91,6 @@ mqtt = ["reactor", "paho-mqtt"]
 [patch.crates-io]
 pbni-rs = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
 pbni-codegen = { git = "https://github.com/gaoqiangz/pbni-rs.git", branch = "syslib" }
-# 解决`openssl`链接问题
-paho-mqtt-sys = { git = "https://github.com/gaoqiangz/paho.mqtt.rust.git" }
 
 # 正式发布时使用最优化编译模式，减少二进制大小
 
