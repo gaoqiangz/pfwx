@@ -1,5 +1,5 @@
 use super::*;
-use std::{collections::HashMap, mem::replace};
+use std::mem::replace;
 
 #[derive(Default)]
 pub struct HttpForm {

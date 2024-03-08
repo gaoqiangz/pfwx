@@ -1,6 +1,6 @@
 use super::*;
 use crate::base::{conv, pfw};
-use paho_mqtt::{Message, MessageBuilder};
+use paho_mqtt::MessageBuilder;
 use std::borrow::Cow;
 
 #[derive(Default)]

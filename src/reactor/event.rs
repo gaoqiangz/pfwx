@@ -6,10 +6,8 @@ use windows::{
     core::Error as WinError, Win32::{
         Foundation::{
             CloseHandle, DuplicateHandle, BOOLEAN, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT
-        }, System::{
-            Threading::{
-                CreateEventA, GetCurrentProcess, RegisterWaitForSingleObject, ResetEvent, SetEvent, UnregisterWaitEx, WaitForSingleObject, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE
-            }, WindowsProgramming::INFINITE
+        }, System::Threading::{
+            CreateEventA, GetCurrentProcess, RegisterWaitForSingleObject, ResetEvent, SetEvent, UnregisterWaitEx, WaitForSingleObject, INFINITE, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE
         }
     }
 };
