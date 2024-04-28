@@ -14,7 +14,7 @@ mod cookie;
 
 use config::HttpClientConfig;
 use request::HttpRequest;
-use response::{HttpResponse, HttpResponseKind};
+use response::{HttpResponse, HttpResponseInner};
 
 struct HttpClient {
     state: HandlerState,
@@ -48,7 +48,13 @@ impl HttpClient {
         }
     }
 
-    fn complete(&mut self, id: pbulong, resp: HttpResponseKind, elapsed: u128, receive_file: Option<String>) {
+    fn complete(
+        &mut self,
+        id: pbulong,
+        resp: HttpResponseInner,
+        elapsed: u128,
+        receive_file: Option<String>
+    ) {
         let mut pending = self.pending.borrow_mut();
         pending.remove(&id);
         drop(pending);
@@ -100,7 +106,7 @@ impl HttpClient {
         drop(pending);
         if let Some((hdl, receive_file)) = removed {
             if hdl.cancel() {
-                self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
+                self.complete(id, HttpResponseInner::cancelled(), 0, receive_file.clone());
                 if let Some(file_path) = receive_file {
                     thread::yield_now();
                     let _ = fs::remove_file(file_path);
@@ -119,7 +125,7 @@ impl HttpClient {
         drop(pending);
         for (id, (hdl, receive_file)) in taked {
             if hdl.cancel() {
-                self.complete(id, HttpResponseKind::cancelled(), 0, receive_file.clone());
+                self.complete(id, HttpResponseInner::cancelled(), 0, receive_file.clone());
                 if let Some(file_path) = receive_file {
                     thread::yield_now();
                     let _ = fs::remove_file(file_path);
@@ -140,6 +146,9 @@ impl HttpClient {
 
     #[event(name = "OnReceive")]
     fn on_recv(&mut self, id: pbulong, total: pbulong, received: pbulong, speed: pbulong) -> RetCode {}
+
+    #[event(name = "OnSend")]
+    fn on_send(&mut self, id: pbulong, total: pbulong, sent: pbulong, speed: pbulong) -> RetCode {}
 }
 
 impl Handler for HttpClient {

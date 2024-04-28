@@ -1,14 +1,17 @@
 use super::{form::HttpForm, multipart::HttpMultipart, *};
 use crate::base::pfw;
-use bytes::BytesMut;
-use futures_util::future::{self, Either, FutureExt};
+use bytes::Bytes;
+use futures_util::{
+    future::{self, Either, FutureExt}, Stream
+};
+use http_body::Body as HttpBody;
 use reqwest::{
-    header::{self, HeaderValue}, RequestBuilder
+    header::{self, HeaderValue, CONTENT_LENGTH}, Body, RequestBuilder, Response, Result as ReqwestResult
 };
-use std::{future::Future, time::Duration};
-use tokio::{
-    fs::File, io::AsyncWriteExt, time::{self, Instant}
+use std::{
+    future::Future, pin::Pin, result::Result as StdResult, sync::atomic::{AtomicU64, Ordering}, task::{ready, Context as TaskContext, Poll}, time::Duration
 };
+use tokio::time::{self, Instant};
 
 #[derive(Default)]
 pub struct HttpRequest {
@@ -155,9 +158,14 @@ impl HttpRequest {
             let client = client.get_native_ref::<HttpClient>().expect("invalid httpclient");
             let recv_file_path = self.recv_file_path.clone();
             let fut = if progress.unwrap_or_default() {
-                Either::Left(self.send_progress_impl(&client, builder.unwrap(), 0, recv_file_path.clone()))
+                Either::Left(self.send_with_progress_impl(
+                    0,
+                    &client,
+                    builder.unwrap(),
+                    recv_file_path.clone()
+                ))
             } else {
-                Either::Right(self.send_no_progress_impl(builder.unwrap(), recv_file_path.clone()))
+                Either::Right(self.send_impl(builder.unwrap(), recv_file_path.clone()))
             };
             let (resp, elapsed) = client
                 .spawn_blocking(async move {
@@ -167,7 +175,7 @@ impl HttpRequest {
                         if let Some(rv) = futures::cancel_by_event(fut, hevent).await {
                             rv
                         } else {
-                            HttpResponseKind::cancelled()
+                            HttpResponseInner::cancelled()
                         }
                     } else {
                         fut.await
@@ -181,7 +189,7 @@ impl HttpRequest {
         } else {
             HttpResponse::new_object_modify(self.get_session(), |obj| {
                 obj.init(
-                    HttpResponseKind::send_error("invalid request object"),
+                    HttpResponseInner::send_error("invalid request object"),
                     0,
                     None,
                     self.recv_file_path.take()
@@ -202,9 +210,14 @@ impl HttpRequest {
             //执行顺序锁
             let semaphore = client.semaphore.clone();
             let fut = if progress.unwrap_or_default() {
-                Either::Left(self.send_progress_impl(&client, builder.unwrap(), id, recv_file_path.clone()))
+                Either::Left(self.send_with_progress_impl(
+                    id,
+                    &client,
+                    builder.unwrap(),
+                    recv_file_path.clone()
+                ))
             } else {
-                Either::Right(self.send_no_progress_impl(builder.unwrap(), recv_file_path.clone()))
+                Either::Right(self.send_impl(builder.unwrap(), recv_file_path.clone()))
             };
             let cancel_hdl = client.spawn(
                 async move {
@@ -225,184 +238,152 @@ impl HttpRequest {
     }
 
     /// 请求实现
-    fn send_no_progress_impl(
+    fn send_impl(
         &mut self,
         builder: RequestBuilder,
         recv_file_path: Option<String>
-    ) -> impl Future<Output = HttpResponseKind> {
+    ) -> impl Future<Output = HttpResponseInner> {
         async move {
             match builder.send().await {
-                Ok(mut resp) => {
-                    let status = resp.status();
-                    let headers = resp.headers().clone();
-                    if let Some(file_path) = recv_file_path {
-                        if let Err(e) = crate::base::fs::create_file_dir_all(&file_path) {
-                            HttpResponseKind::receive_error(status, headers, e)
-                        } else {
-                            match File::create(file_path).await {
-                                Ok(mut file) => {
-                                    while let Some(chunk) = resp.chunk().await.transpose() {
-                                        match chunk {
-                                            Ok(chunk) => {
-                                                if let Err(e) = file.write_all(&chunk).await {
-                                                    return HttpResponseKind::receive_error(
-                                                        status, headers, e
-                                                    );
-                                                }
-                                            },
-                                            Err(e) => {
-                                                return HttpResponseKind::receive_error(status, headers, e);
-                                            }
-                                        }
-                                    }
-                                    HttpResponseKind::received(status, headers, Default::default())
-                                },
-                                Err(e) => HttpResponseKind::receive_error(status, headers, e)
-                            }
-                        }
-                    } else {
-                        match resp.bytes().await {
-                            Ok(data) => HttpResponseKind::received(status, headers, data),
-                            Err(e) => HttpResponseKind::receive_error(status, headers, e)
-                        }
-                    }
-                },
-                Err(e) => HttpResponseKind::send_error(e)
+                Ok(resp) => HttpResponseInner::receive(resp, recv_file_path).await,
+                Err(e) => HttpResponseInner::send_error(e)
             }
         }
     }
 
     /// 带进度回调的请求实现
-    fn send_progress_impl(
+    fn send_with_progress_impl(
         &mut self,
+        id: pbulong,
         client: &HttpClient,
         builder: RequestBuilder,
-        id: pbulong,
         recv_file_path: Option<String>
-    ) -> impl Future<Output = HttpResponseKind> {
+    ) -> impl Future<Output = HttpResponseInner> {
         let invoker = client.invoker();
         async move {
-            match builder.send().await {
-                Ok(mut resp) => {
-                    let status = resp.status();
-                    let headers = resp.headers().clone();
+            match Self::execute_request_with_progress(id, builder, invoker.clone()).await {
+                Ok(resp) => HttpResponseInner::receive_with_progress(id, invoker, resp, recv_file_path).await,
+                Err(e) => e
+            }
+        }
+    }
 
-                    let mut file = if let Some(file_path) = recv_file_path {
-                        if let Err(e) = crate::base::fs::create_file_dir_all(&file_path) {
-                            return HttpResponseKind::receive_error(status, headers, e);
-                        } else {
-                            match File::create(file_path).await {
-                                Ok(file) => Some(file),
-                                Err(e) => return HttpResponseKind::receive_error(status, headers, e)
-                            }
-                        }
-                    } else {
-                        None
-                    };
+    /// 执行带进度回调的请求
+    async fn execute_request_with_progress(
+        id: pbulong,
+        builder: RequestBuilder,
+        invoker: HandlerInvoker<HttpClient>
+    ) -> StdResult<Response, HttpResponseInner> {
+        let (raw_client, mut req) = match builder.build_split() {
+            (cli, Ok(req)) => (cli, req),
+            (_, Err(e)) => return Err(HttpResponseInner::send_error(e))
+        };
+        let mut total_size = 0;
+        let sent_size = Arc::new(AtomicU64::new(0));
+        if let Some(body) = req.body_mut().take() {
+            //优先从Content-Length获取
+            let mut content_length = if let Some(len) = req.headers().get(CONTENT_LENGTH) {
+                if let Ok(len) = len.to_str() {
+                    len.parse::<u64>().ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if content_length.is_none() {
+                content_length = body.size_hint().exact();
+            }
+            total_size = content_length.unwrap_or_default();
+            //替换Body
+            req.body_mut().replace(Body::wrap_stream(HttpBodyProgress::new(body, sent_size.clone())));
+        }
 
-                    let total_size = resp.content_length().unwrap_or_default();
-                    let mut recv_size = 0;
-                    let mut recv_data = if file.is_some() {
-                        BytesMut::new()
-                    } else {
-                        BytesMut::with_capacity(total_size.max(1024 * 1024) as usize)
-                    };
+        //定时器（每秒计算一次速率并回调通知对象）
+        let mut tick_start = Instant::now();
+        let mut tick_interval =
+            time::interval_at(tick_start + Duration::from_secs(1), Duration::from_secs(1));
+        let mut tick_size: u64 = 0; //基准
+        let mut tick_invoke = Either::Left(future::pending());
 
-                    //定时器（每秒计算一次速率并回调通知对象）
-                    let mut tick_start = Instant::now();
-                    let mut tick_interval =
-                        time::interval_at(tick_start + Duration::from_secs(1), Duration::from_secs(1));
-                    let mut tick_size = 0; //基准
-                    let mut tick_invoke = Either::Left(future::pending());
+        //完结回调事件流的标识
+        #[derive(Debug, PartialEq, Eq)]
+        enum DoneFlag {
+            Pending,
+            Invoke,
+            Invoking,
+            Done
+        }
+        let mut done_flag = DoneFlag::Pending;
+        let mut resp = None;
+        let mut req = Either::Left(raw_client.execute(req));
 
-                    #[derive(PartialEq, Eq)]
-                    enum DoneFlag {
-                        Pending,
-                        Invoke,
-                        Invoking,
-                        Done
-                    }
-                    let mut done_flag = DoneFlag::Pending;
-
-                    loop {
-                        tokio::select! {
-                            chunk = resp.chunk() => {
-                                match chunk {
-                                    Ok(Some(chunk)) => {
-                                        recv_size += chunk.len();
-                                        if let Some(file) = file.as_mut() {
-                                            if let Err(e) = file.write_all(&chunk).await {
-                                                break HttpResponseKind::receive_error(status, headers, e);
-                                            }
-                                        } else {
-                                            recv_data.extend_from_slice(&chunk);
-                                        }
-                                    },
-                                    Ok(None) => {
-                                        if done_flag == DoneFlag::Pending {
-                                            done_flag = DoneFlag::Invoke;
-                                        }
-                                        if done_flag == DoneFlag::Invoke || done_flag == DoneFlag::Invoking{
-                                            tokio::task::yield_now().await;
-                                            continue;
-                                        }
-                                        break HttpResponseKind::received(status, headers, recv_data.freeze())
-                                    },
-                                    Err(e) => {
-                                        break HttpResponseKind::receive_error(status, headers, e);
-                                    }
-                                }
-                            },
-                            _ = tick_interval.tick() => {
-                                let speed = (recv_size - tick_size) as f32 / tick_start.elapsed().as_secs_f32();
-                                tick_size = recv_size;
-                                tick_start = Instant::now();
-                                //UI线程阻塞时截流，丢弃中间的速率
-                                if matches!(tick_invoke, Either::Left(_)) {
-                                    tick_invoke = Either::Right(
-                                        invoker.invoke(
-                                                    (id, total_size, recv_size, speed),
-                                                    |this, (id, total_size, recv_size, speed)| {
-                                                        this.on_recv(
-                                                            id,
-                                                            total_size as pbulong,
-                                                            recv_size as pbulong,
-                                                            speed as pbulong
-                                                        )
-                                                    }
-                                                )
-                                                .then(|rv| {
-                                                    async {
-                                                        rv.await
-                                                    }
-                                                })
-                                                .boxed()
-                                    );
-                                    if done_flag == DoneFlag::Invoke {
-                                        done_flag = DoneFlag::Invoking;
-                                    }
-                                }
-                            },
-                            rv = &mut tick_invoke => {
-                                tick_invoke = Either::Left(future::pending());
-                                match rv {
-                                    Ok(rv) => {
-                                        //取消
-                                        if rv == RetCode::PREVENT {
-                                            break HttpResponseKind::cancelled();
-                                        }
-                                    },
-                                    Err(InvokeError::TargetIsDead) => break HttpResponseKind::cancelled(),
-                                    Err(InvokeError::Panic) => panic!("callback panic")
-                                }
-                                if done_flag == DoneFlag::Invoking {
-                                    done_flag = DoneFlag::Done;
-                                }
-                            }
+        loop {
+            tokio::select! {
+                res = &mut req => {
+                    match res {
+                        Ok(res) => {
+                            assert_eq!(done_flag, DoneFlag::Pending);
+                            resp = Some(res);
+                            req = Either::Right(future::pending());
+                            done_flag = DoneFlag::Invoke;
+                            tokio::task::yield_now().await;
+                            continue;
+                        },
+                        Err(e) => {
+                            return Err(HttpResponseInner::send_error(e));
                         }
                     }
                 },
-                Err(e) => HttpResponseKind::send_error(e)
+                _ = tick_interval.tick() => {
+                    let sent_size = sent_size.load(Ordering::SeqCst);
+                    let speed = (sent_size - tick_size) as f32 / tick_start.elapsed().as_secs_f32();
+                    tick_size = sent_size;
+                    tick_start = Instant::now();
+                    //UI线程阻塞时截流，丢弃中间的速率
+                    if matches!(tick_invoke, Either::Left(_)) {
+                        tick_invoke = Either::Right(
+                            invoker.invoke(
+                                        (id, total_size, sent_size, speed),
+                                        |this, (id, total_size, sent_size, speed)| {
+                                            this.on_send(
+                                                id,
+                                                total_size as pbulong,
+                                                sent_size as pbulong,
+                                                speed as pbulong
+                                            )
+                                        }
+                                    )
+                                    .then(|rv| {
+                                        async {
+                                            rv.await
+                                        }
+                                    })
+                                    .boxed()
+                        );
+                        if done_flag == DoneFlag::Invoke {
+                            done_flag = DoneFlag::Invoking;
+                        }
+                    }
+                },
+                rv = &mut tick_invoke => {
+                    tick_invoke = Either::Left(future::pending());
+                    match rv {
+                        Ok(rv) => {
+                            //取消
+                            if rv == RetCode::PREVENT {
+                                return Err(HttpResponseInner::cancelled());
+                            }
+                        },
+                        Err(InvokeError::TargetIsDead) => return Err(HttpResponseInner::cancelled()),
+                        Err(InvokeError::Panic) => panic!("Callback panic at OnSend")
+                    }
+                    #[allow(unused_assignments)]
+                    if done_flag == DoneFlag::Invoking {
+                        done_flag = DoneFlag::Done;
+                        return Ok(resp.expect("Unexpected Response"));
+                    }
+                }
             }
         }
     }
@@ -411,4 +392,44 @@ impl HttpRequest {
 struct HttpRequestInner {
     client: SharedObject,
     builder: Option<RequestBuilder>
+}
+
+/// 封装HttpBody捕获发送字节数
+struct HttpBodyProgress {
+    body: Body,
+    sent_size: Arc<AtomicU64>
+}
+
+impl HttpBodyProgress {
+    fn new(body: Body, sent_size: Arc<AtomicU64>) -> Self {
+        HttpBodyProgress {
+            body,
+            sent_size
+        }
+    }
+}
+
+impl Stream for HttpBodyProgress {
+    type Item = ReqwestResult<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        match ready!(HttpBody::poll_frame(Pin::new(&mut self.body), cx)) {
+            Some(res) => {
+                match res {
+                    Ok(res) => {
+                        let data = res.into_data().expect("Unexpected streaming body");
+                        self.sent_size.fetch_add(data.len() as u64, Ordering::SeqCst);
+                        Poll::Ready(Some(Ok(data)))
+                    },
+                    Err(e) => Poll::Ready(Some(Err(e)))
+                }
+            },
+            None => Poll::Ready(None)
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let hint = self.body.size_hint();
+        (hint.lower() as usize, hint.upper().map(|v| v as usize))
+    }
 }

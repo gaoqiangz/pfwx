@@ -9,4 +9,4 @@ mod event;
 mod mem;
 pub mod futures;
 
-pub use handler::{CancelHandle, Handler, HandlerState, InvokeError};
+pub use handler::{CancelHandle, Handler, HandlerInvoker, HandlerState, InvokeError};
