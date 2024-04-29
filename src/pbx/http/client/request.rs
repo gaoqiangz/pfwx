@@ -11,7 +11,9 @@ use reqwest::{
 use std::{
     future::Future, pin::Pin, result::Result as StdResult, sync::atomic::{AtomicU64, Ordering}, task::{ready, Context as TaskContext, Poll}, time::Duration
 };
-use tokio::time::{self, Instant};
+use tokio::{
+    task::yield_now, time::{self, Instant}
+};
 
 #[derive(Default)]
 pub struct HttpRequest {
@@ -295,9 +297,12 @@ impl HttpRequest {
                 content_length = body.size_hint().exact();
             }
             total_size = content_length.unwrap_or_default();
-            //替换Body
+            //替换Body捕获发送字节数
             req.body_mut().replace(Body::wrap_stream(HttpBodyProgress::new(body, sent_size.clone())));
         }
+
+        let mut resp = None;
+        let mut req = Either::Left(raw_client.execute(req));
 
         //定时器（每秒计算一次速率并回调通知对象）
         let mut tick_start = Instant::now();
@@ -315,8 +320,6 @@ impl HttpRequest {
             Done
         }
         let mut done_flag = DoneFlag::Pending;
-        let mut resp = None;
-        let mut req = Either::Left(raw_client.execute(req));
 
         loop {
             tokio::select! {
@@ -327,7 +330,7 @@ impl HttpRequest {
                             resp = Some(res);
                             req = Either::Right(future::pending());
                             done_flag = DoneFlag::Invoke;
-                            tokio::task::yield_now().await;
+                            yield_now().await;
                             continue;
                         },
                         Err(e) => {

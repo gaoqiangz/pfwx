@@ -10,7 +10,7 @@ use reqwest::{
 };
 use std::{borrow::Cow, fmt::Display, time::Duration};
 use tokio::{
-    fs::File, io::AsyncWriteExt, time::{self, Instant}
+    fs::File, io::AsyncWriteExt, task::yield_now, time::{self, Instant}
 };
 
 #[derive(Default)]
@@ -461,7 +461,7 @@ impl HttpResponseInner {
                                 done_flag = DoneFlag::Invoke;
                             }
                             if done_flag == DoneFlag::Invoke || done_flag == DoneFlag::Invoking {
-                                tokio::task::yield_now().await;
+                                yield_now().await;
                                 continue;
                             }
                             return HttpResponseInner::received(status, headers, recv_data.freeze());
