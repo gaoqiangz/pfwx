@@ -1,6 +1,6 @@
 [package]
 name = "pfwx"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["金千枝（深圳）软件技术有限公司. All rights reserved."]
 edition = "2021"
 license = "BSD-2-Clause"
@@ -48,7 +48,6 @@ backtrace = { version = "0.3.67", optional = true }
 # http
 reqwest = { version = "0.12.4", features = [
     "native-tls-vendored",
-    "trust-dns",
     "multipart",
     "stream",
     "cookies",
