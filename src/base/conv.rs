@@ -41,6 +41,7 @@ fn codepage(encoding: pblong) -> usize {
 /// 通过指定编码进行字符串编码
 ///
 /// NOTE 默认`utf-8`
+#[cfg(feature = "encoding")]
 pub fn encode(data: &str, encoding: pblong) -> Cow<[u8]> {
     let codec =
         encoding::label::encoding_from_windows_code_page(codepage(encoding)).unwrap_or(encoding::all::UTF_8);
@@ -54,6 +55,7 @@ pub fn encode(data: &str, encoding: pblong) -> Cow<[u8]> {
 /// 通过指定编码进行字符串解码
 ///
 /// NOTE 默认`utf-8`
+#[cfg(feature = "encoding")]
 pub fn decode(data: &[u8], encoding: pblong) -> Cow<str> {
     let codec =
         encoding::label::encoding_from_windows_code_page(codepage(encoding)).unwrap_or(encoding::all::UTF_8);
@@ -67,6 +69,7 @@ pub fn decode(data: &[u8], encoding: pblong) -> Cow<str> {
 /// 通过指定字符集名称进行字符串解码
 ///
 /// NOTE 默认`utf-8`
+#[cfg(feature = "encoding")]
 pub fn decode_by_charset<'a>(data: &'a [u8], charset: &str) -> Cow<'a, str> {
     let codec = encoding::label::encoding_from_whatwg_label(charset).unwrap_or(encoding::all::UTF_8);
     if codec.name() == "utf-8" {
