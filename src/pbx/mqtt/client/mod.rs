@@ -72,6 +72,9 @@ impl MqttClient {
                 runtime::spawn(async move {
                     let _ = invoker
                         .invoke((), |this, ()| {
+                            if this.client.is_none() {
+                                return;
+                            }
                             this.has_closed = false;
                             let is_reconnect = if !this.has_connected {
                                 this.has_connected = true;
@@ -82,7 +85,7 @@ impl MqttClient {
                             //TODO - 支持`session present`检测
                             this.on_open(is_reconnect, false);
                             //处理离线消息
-                            let client = this.client.as_ref().unwrap();
+                            let client = this.client.as_ref().unwrap(); //SAFETY
                             if !this.offline_publish.is_empty() {
                                 let offline_publish = take(&mut this.offline_publish);
                                 for msg in offline_publish {
