@@ -198,7 +198,9 @@ struct Waiting {
 impl Waiting {
     unsafe extern "system" fn callback(ptr: *mut c_void, _timer_fired: BOOLEAN) {
         let tx = &mut *(ptr as *mut Option<oneshot::Sender<()>>);
-        tx.take().unwrap().send(()).unwrap();
+        if let Some(tx) = tx.take() {
+            let _ = tx.send(());
+        }
     }
 }
 
