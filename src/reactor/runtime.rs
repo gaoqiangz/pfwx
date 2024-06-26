@@ -13,7 +13,7 @@ pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
 {
-    let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime");
     if runtime.is_none() {
         *runtime = Some(Runtime::new());
     }
@@ -23,13 +23,13 @@ where
     #[cfg(not(feature = "trace"))]
     let msg = Task(Box::pin(fut));
     if let Err(e) = runtime_tx.send(msg) {
-        panic!("send message to background failed: {e}");
+        panic!("Send message to runtime failed: {e}");
     }
 }
 
 /// 销毁后台运行时
 pub fn shutdown() {
-    let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
+    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime");
     *runtime = None;
 }
 
@@ -120,7 +120,7 @@ impl Runtime {
                                 task::Builder::new()
                                     .name(&format!("{}:{}", loc.file(), loc.line()))
                                     .spawn_local(task)
-                                    .unwrap();
+                                    .expect("Spawn local task");
                             } else {
                                 break;
                             }
@@ -171,9 +171,9 @@ impl Runtime {
                 //运行时可能创建了`blocking`后台线程，此处需要立即退出并且不等待线程结束信号
                 rt.shutdown_background();
                 //退出信号
-                stop_tx.send(()).unwrap();
+                let _ = stop_tx.send(());
             })
-            .expect("new bkgnd-rt thread");
+            .expect("Create runtime thread");
 
         Runtime {
             thrd_hdl: Some(thrd_hdl),
@@ -199,7 +199,7 @@ impl Drop for Runtime {
         if rc == WAIT_TIMEOUT {
             //NOTE 不能直接WAIT线程对象，因为此时可能正处于TLS销毁流程中，OS加了保护锁防止不同线程同时进入`DllMain`
             //issue: https://github.com/rust-lang/rust/issues/74875
-            self.stop_rx.take().unwrap().blocking_recv().unwrap();
+            let _ = self.stop_rx.take().unwrap().blocking_recv();
             //FIXME
             //短暂挂起使线程调用栈完全退出
             thread::sleep(Duration::from_millis(200));
