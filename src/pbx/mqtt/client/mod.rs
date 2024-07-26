@@ -5,6 +5,7 @@ use paho_mqtt::{
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use std::{mem::take, time::Duration};
+use tokio::time;
 
 mod config;
 mod message;
@@ -161,7 +162,9 @@ impl MqttClient {
         self.has_connected = false;
         self.has_closed = false;
         if let Some(client) = self.client.take() {
-            let _ = client.disconnect(None).wait_for(Duration::from_secs(3));
+            runtime::spawn(async move {
+                let _ = time::timeout(Duration::from_secs(3), client.disconnect(None)).await;
+            });
             if has_connected && !has_closed {
                 self.on_close(0, "close".to_owned());
             }

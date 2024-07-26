@@ -1,6 +1,6 @@
 [package]
 name = "pfwx"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["金千枝（深圳）软件技术有限公司. All rights reserved."]
 edition = "2021"
 license = "BSD-2-Clause"
