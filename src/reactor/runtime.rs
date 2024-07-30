@@ -13,7 +13,7 @@ pub fn spawn<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static
 {
-    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime");
+    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime failed");
     if runtime.is_none() {
         *runtime = Some(Runtime::new());
     }
@@ -22,14 +22,12 @@ where
     let msg = Task(Box::pin(fut), panic::Location::caller());
     #[cfg(not(feature = "trace"))]
     let msg = Task(Box::pin(fut));
-    if let Err(e) = runtime_tx.send(msg) {
-        panic!("Send message to runtime failed: {e}");
-    }
+    runtime_tx.send(msg).expect("Send message to runtime failed");
 }
 
 /// 销毁后台运行时
 pub fn shutdown() {
-    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime");
+    let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime failed");
     *runtime = None;
 }
 
@@ -191,7 +189,7 @@ impl Drop for Runtime {
         };
 
         //关闭消息通道
-        self.msg_tx.take();
+        drop(self.msg_tx.take());
 
         //检查线程是否存活，可能提前被`ExitProcess`销毁
         let thrd_hdl = self.thrd_hdl.take().unwrap();
