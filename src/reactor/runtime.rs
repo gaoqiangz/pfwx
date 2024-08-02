@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use std::{
     future::Future, panic, pin::Pin, sync::Mutex, thread::{self, JoinHandle}, time::Duration
 };
