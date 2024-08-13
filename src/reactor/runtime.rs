@@ -4,7 +4,9 @@ use std::{
     future::Future, panic, pin::Pin, sync::Mutex, thread::{self, JoinHandle}, time::Duration
 };
 use tokio::{
-    runtime, sync::{mpsc, mpsc::UnboundedReceiver, oneshot}, task
+    runtime, sync::{
+        mpsc::{self, UnboundedReceiver, UnboundedSender}, oneshot
+    }, task
 };
 
 static GLOBAL_RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
@@ -24,7 +26,10 @@ where
     let msg = Task(Box::pin(fut), panic::Location::caller());
     #[cfg(not(feature = "trace"))]
     let msg = Task(Box::pin(fut));
-    runtime_tx.send(msg).expect("Send message to runtime failed");
+    if let Err(e) = runtime_tx.send(msg) {
+        drop(runtime);
+        panic!("Send message to runtime failed: {e:?}");
+    }
 }
 
 /// 销毁后台运行时
@@ -42,7 +47,7 @@ struct Task(Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
 /// 运行时
 struct Runtime {
     thrd_hdl: Option<JoinHandle<()>>,
-    msg_tx: Option<mpsc::UnboundedSender<Task>>,
+    msg_tx: Option<UnboundedSender<Task>>,
     stop_rx: Option<oneshot::Receiver<()>>
 }
 
@@ -120,7 +125,7 @@ impl Runtime {
                                 task::Builder::new()
                                     .name(&format!("{}:{}", loc.file(), loc.line()))
                                     .spawn_local(task)
-                                    .expect("Spawn local task");
+                                    .expect("Spawn local task failed");
                             } else {
                                 break;
                             }
@@ -145,7 +150,7 @@ impl Runtime {
     }
 
     /// 启动运行时
-    fn startup<F, R>(new_runloop: F) -> Runtime
+    fn startup<F, R>(runloop: F) -> Runtime
     where
         F: FnOnce(UnboundedReceiver<Task>) -> R,
         R: Future + Send + 'static
@@ -155,14 +160,17 @@ impl Runtime {
         let (stop_tx, stop_rx) = oneshot::channel();
         //消息通道
         let (msg_tx, msg_rx) = mpsc::unbounded_channel();
-        let runloop = new_runloop(msg_rx);
+        let runloop = runloop(msg_rx);
 
         //创建后台线程
         let thrd_hdl = thread::Builder::new()
             .name("bkgnd-rt".to_owned())
             .spawn(move || {
                 //单线程运行时
-                let rt = runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                let rt = runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Create tokio runtime failed");
                 let local = task::LocalSet::new();
                 //运行
                 rt.block_on(local.run_until(runloop));
@@ -173,7 +181,9 @@ impl Runtime {
                 //退出信号
                 let _ = stop_tx.send(());
             })
-            .expect("Create runtime thread");
+            .expect("Create runtime thread failed");
+
+        assert!(!msg_tx.is_closed());
 
         Runtime {
             thrd_hdl: Some(thrd_hdl),
