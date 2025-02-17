@@ -485,9 +485,9 @@ dependencies = [
 
 [[package]]
 name = "dwparser"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80d83d2653d16f61121ffc5b435e6851364ae9de9616bc57d8f6ff6cc8c4dd1d"
+checksum = "6643cdc157953c2890ffe257a249a07c503c727c2f76a7fe011124b3a561e627"
 dependencies = [
  "indexmap 1.9.3",
  "nom",
@@ -1443,7 +1443,7 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "pfwx"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "backtrace",
  "bytes",
