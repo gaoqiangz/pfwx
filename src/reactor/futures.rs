@@ -1,7 +1,9 @@
-use super::event::{Win32Event, HEVENT};
+use std::future::Future;
+
 use futures_util::future::{self, Either};
 use pbni::primitive::pbulong;
-use std::future::Future;
+
+use super::event::{Win32Event, HEVENT};
 
 /// 执行`fut`任务并支持通过Win32 Event Handle信号进行取消
 ///

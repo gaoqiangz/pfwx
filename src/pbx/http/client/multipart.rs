@@ -1,7 +1,9 @@
-use super::*;
-use reqwest::multipart::{Form, Part};
 use std::fs::File as StdFile;
+
+use reqwest::multipart::{Form, Part};
 use tokio::fs::File;
+
+use super::*;
 
 pub struct HttpMultipart {
     builder: Option<Form>

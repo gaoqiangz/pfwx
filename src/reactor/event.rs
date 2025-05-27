@@ -1,18 +1,18 @@
 use std::{
     ffi::c_void, future::Future, pin::Pin, task::{Context, Poll}, time::Duration
 };
+
 use tokio::sync::oneshot;
+pub use windows::Win32::Foundation::HANDLE as HEVENT;
 use windows::{
     core::Error as WinError, Win32::{
         Foundation::{
-            CloseHandle, DuplicateHandle, BOOLEAN, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT
+            CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT
         }, System::Threading::{
             CreateEventA, GetCurrentProcess, RegisterWaitForSingleObject, ResetEvent, SetEvent, UnregisterWaitEx, WaitForSingleObject, INFINITE, WT_EXECUTEINWAITTHREAD, WT_EXECUTEONLYONCE
         }
     }
 };
-
-pub use windows::Win32::Foundation::HANDLE as HEVENT;
 
 /// Win32事件句柄
 #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -25,7 +25,7 @@ pub struct Win32Event {
 impl Win32Event {
     /// 创建自动信号类型事件
     pub fn auto() -> Self {
-        let handle = unsafe { CreateEventA(None, false, false, None).expect("create event") };
+        let handle = unsafe { CreateEventA(None, false, false, None).expect("CreateEventA failed") };
         Win32Event {
             handle,
             owned: true,
@@ -35,7 +35,7 @@ impl Win32Event {
 
     /// 创建手动信号类型事件
     pub fn manual() -> Self {
-        let handle = unsafe { CreateEventA(None, true, false, None).expect("create event") };
+        let handle = unsafe { CreateEventA(None, true, false, None).expect("CreateEventA failed") };
         Win32Event {
             handle,
             owned: true,
@@ -70,26 +70,10 @@ impl Win32Event {
     pub fn as_raw(&self) -> HEVENT { self.handle }
 
     /// 设置信号
-    pub fn set(&self) -> Result<(), WinError> {
-        unsafe {
-            if SetEvent(self.handle) == true {
-                Ok(())
-            } else {
-                Err(WinError::from_win32())
-            }
-        }
-    }
+    pub fn set(&self) -> Result<(), WinError> { unsafe { SetEvent(self.handle) } }
 
     /// 重置信号
-    pub fn reset(&self) -> Result<(), WinError> {
-        unsafe {
-            if ResetEvent(self.handle) == true {
-                Ok(())
-            } else {
-                Err(WinError::from_win32())
-            }
-        }
-    }
+    pub fn reset(&self) -> Result<(), WinError> { unsafe { ResetEvent(self.handle) } }
 
     /// 阻塞等待信号
     pub fn blocking_wait(&self) -> Result<bool, WinError> {
@@ -117,10 +101,8 @@ impl Clone for Win32Event {
         let handle = unsafe {
             let hprocess = GetCurrentProcess();
             let mut handle = HEVENT::default();
-            assert!(
-                DuplicateHandle(hprocess, self.handle, hprocess, &mut handle, 0, true, DUPLICATE_SAME_ACCESS) ==
-                    true
-            );
+            DuplicateHandle(hprocess, self.handle, hprocess, &mut handle, 0, true, DUPLICATE_SAME_ACCESS)
+                .expect("DuplicateHandle failed");
             handle
         };
         Win32Event {
@@ -152,20 +134,17 @@ impl Future for Win32Event {
             let tx = Box::into_raw(Box::new(Some(tx)));
             let mut wait_object = HANDLE::default();
             unsafe {
-                //注册事件监视
-                if RegisterWaitForSingleObject(
+                // 注册事件监视
+                if let Err(e) = RegisterWaitForSingleObject(
                     &mut wait_object as *mut HANDLE,
                     this.handle,
                     Some(Waiting::callback),
                     Some(tx as *mut c_void),
                     INFINITE,
                     WT_EXECUTEINWAITTHREAD | WT_EXECUTEONLYONCE
-                ) == false
-                {
-                    let err = WinError::from_win32();
-                    //注册失败释放内存(在`WinError::from_win32`后面，避免意外污染`GetLastError`)
+                ) {
                     drop(Box::from_raw(tx));
-                    return Poll::Ready(Err(err));
+                    return Poll::Ready(Err(e));
                 }
             }
 
@@ -182,7 +161,7 @@ impl Drop for Win32Event {
     fn drop(&mut self) {
         if self.owned {
             unsafe {
-                CloseHandle(self.handle);
+                let _ = CloseHandle(self.handle);
             }
         }
     }
@@ -196,7 +175,7 @@ struct Waiting {
 }
 
 impl Waiting {
-    unsafe extern "system" fn callback(ptr: *mut c_void, _timer_fired: BOOLEAN) {
+    unsafe extern "system" fn callback(ptr: *mut c_void, _timer_fired: bool) {
         let tx = &mut *(ptr as *mut Option<oneshot::Sender<()>>);
         if let Some(tx) = tx.take() {
             let _ = tx.send(());
@@ -207,9 +186,7 @@ impl Waiting {
 impl Drop for Waiting {
     fn drop(&mut self) {
         unsafe {
-            if UnregisterWaitEx(self.wait_object, INVALID_HANDLE_VALUE) == false {
-                panic!("UnregisterWaitEx failed: {}", WinError::from_win32());
-            }
+            UnregisterWaitEx(self.wait_object, Some(INVALID_HANDLE_VALUE)).expect("UnregisterWaitEx failed");
             drop(Box::from_raw(self.tx));
         }
     }

@@ -10,10 +10,6 @@
             "request": "attach",
             "processId": "${command:pickProcess}",
             //"processName": "PB190.exe",
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "console": true,
             "sourceFileMap": {
                 "/rustc/5fa22fe6f821ac3801d05f624b123dda25fde32c": "${env:USERPROFILE}/.rustup/toolchains/nightly-x86_64-pc-windows-msvc/lib/rustlib/src/rust"
             }

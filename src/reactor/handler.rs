@@ -1,12 +1,14 @@
-use super::{
-    context::{Dispatcher, SyncContext}, mem::{UnsafeBox, UnsafePointer}, runtime
-};
-use futures_util::FutureExt;
-use pbni::pbx::{AliveState, Session};
 use std::{
     cell::RefCell, future::Future, marker::PhantomData, panic::AssertUnwindSafe, pin::Pin, rc::{Rc, Weak}, task::{ready, Context, Poll}, thread, thread::ThreadId, time::Duration
 };
+
+use futures_util::FutureExt;
+use pbni::pbx::{AliveState, Session};
 use tokio::sync::oneshot;
+
+use super::{
+    context::{Dispatcher, SyncContext}, mem::{UnsafeBox, UnsafePointer}, runtime
+};
 
 /// 回调处理对象抽象
 pub trait Handler: Sized + 'static {
@@ -46,7 +48,7 @@ pub trait Handler: Sized + 'static {
         let handler = {
             let cancel_id = cancel_hdl.id();
             move |this: &mut Self, param: F::Output| {
-                //删除取消ID成功说明任务没有被取消
+                // 删除取消ID成功说明任务没有被取消
                 if this.state().remove_cancel_id(cancel_id) {
                     handler(this, param);
                 } else {
@@ -59,7 +61,7 @@ pub trait Handler: Sized + 'static {
             }
         };
 
-        //封装异步任务
+        // 封装异步任务
         let fut = async move {
             tokio::pin! {
             let fut = AssertUnwindSafe(fut).catch_unwind();
@@ -109,7 +111,7 @@ pub trait Handler: Sized + 'static {
             }
         };
 
-        //执行
+        // 执行
         runtime::spawn(fut);
 
         cancel_hdl
@@ -132,7 +134,7 @@ pub trait Handler: Sized + 'static {
     {
         let sync_ctx = SyncContext::current(self.state().session());
         let (tx, mut rx) = oneshot::channel();
-        //封装异步任务
+        // 封装异步任务
         let fut = async move {
             match AssertUnwindSafe(fut).catch_unwind().await {
                 Ok(rv) => assert!(tx.send(Ok(rv)).is_ok()),
@@ -150,14 +152,14 @@ pub trait Handler: Sized + 'static {
                 }
             }
         };
-        //执行
+        // 执行
         runtime::spawn(fut);
-        //阻塞等待执行结果
+        // 阻塞等待执行结果
         loop {
             match rx.try_recv() {
                 Ok(rv) => break rv,
                 Err(oneshot::error::TryRecvError::Empty) => {
-                    //处理回调消息
+                    // 处理回调消息
                     sync_ctx.process_message();
                     thread::sleep(Duration::from_millis(20));
                 },
@@ -226,7 +228,7 @@ impl HandlerStateManager {
         let id = self.next_id;
         self.next_id += 1;
         let (tx, rx) = oneshot::channel();
-        //优先覆盖失效的元素(任务Panic后残留)
+        // 优先覆盖失效的元素(任务Panic后残留)
         if let Some(idx) = self.pending.iter().position(|(_, tx)| tx.is_closed()) {
             self.pending[idx] = (id, tx);
         } else {
@@ -256,7 +258,7 @@ impl HandlerStateManager {
 
 impl Drop for HandlerStateManager {
     fn drop(&mut self) {
-        //取消所有未完成的任务
+        // 取消所有未完成的任务
         while let Some((_, tx)) = self.pending.pop() {
             let _ = tx.send(());
         }
@@ -446,7 +448,7 @@ impl<T> InvokeJoinHandle<T> {
                 match rx.blocking_recv() {
                     Ok(Some(rv)) => Ok(rv),
                     Ok(None) => Err(InvokeError::TargetIsDead),
-                    //NOTE 回调过程发生异常导致`tx`被提前销毁
+                    // NOTE 回调过程发生异常导致`tx`被提前销毁
                     Err(_) => Err(InvokeError::Panic)
                 }
             },
@@ -464,7 +466,7 @@ impl<T> Future for InvokeJoinHandle<T> {
                 match ready!(Pin::new(rx).poll(cx)) {
                     Ok(Some(rv)) => Poll::Ready(Ok(rv)),
                     Ok(None) => Poll::Ready(Err(InvokeError::TargetIsDead)),
-                    //NOTE 回调过程发生异常导致`tx`被提前销毁
+                    // NOTE 回调过程发生异常导致`tx`被提前销毁
                     Err(_) => Poll::Ready(Err(InvokeError::Panic))
                 }
             },

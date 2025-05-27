@@ -1,7 +1,9 @@
-use crate::prelude::*;
+use std::mem::transmute;
+
 use dwparser::DWSyntax;
 use pbni::pbx::*;
-use std::mem::transmute;
+
+use crate::prelude::*;
 
 #[derive(Default)]
 struct DWParser {
@@ -16,7 +18,7 @@ impl DWParser {
     #[method(name = "Parse")]
     fn parse(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
-            //SAFETY
+            // SAFETY
             transmute(syn.as_str())
         };
         let ast = DWSyntax::parse(syn_ref)?;
@@ -55,7 +57,7 @@ impl DWParser {
     #[method(name = "FromJson")]
     fn from_json_ast(&mut self, syn: String) -> RetCode {
         let syn_ref: &'static str = unsafe {
-            //SAFETY
+            // SAFETY
             transmute(syn.as_str())
         };
         let ast = serde_json::from_str::<DWSyntax>(syn_ref)?;
@@ -79,6 +81,6 @@ impl DWParser {
 
 #[allow(dead_code)]
 struct DWParserInner {
-    syn: String, //NOTE 不能修改
+    syn: String, // NOTE 不能修改
     ast: DWSyntax<'static>
 }

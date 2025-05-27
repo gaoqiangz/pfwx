@@ -3,6 +3,7 @@
 use std::{
     future::Future, panic, pin::Pin, sync::Mutex, thread::{self, JoinHandle}, time::Duration
 };
+
 use tokio::{
     runtime, sync::{
         mpsc::{self, UnboundedReceiver, UnboundedSender}, oneshot
@@ -58,6 +59,7 @@ impl Runtime {
         use std::{
             io::{Result as IoResult, Write}, str::from_utf8
         };
+
         use tracing::level_filters::LevelFilter;
         use tracing_subscriber::{filter, fmt, fmt::format::FmtSpan, prelude::*};
         use windows::{core::PCWSTR, Win32::System::Diagnostics::Debug::*};
@@ -66,7 +68,7 @@ impl Runtime {
             .with_default(LevelFilter::OFF)
             .with_target(env!("CARGO_PKG_NAME"), LevelFilter::TRACE);
 
-        //Log file
+        // Log file
         let file_appender = tracing_appender::rolling::never("", concat!(env!("CARGO_PKG_NAME"), ".log"));
         let file = fmt::layer()
             .with_ansi(false)
@@ -76,7 +78,7 @@ impl Runtime {
             .with_thread_ids(true)
             .with_writer(file_appender)
             .with_filter(filter.clone());
-        //WinDBG
+        // WinDBG
         struct OutputDebugString;
         impl Write for OutputDebugString {
             fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
@@ -98,7 +100,7 @@ impl Runtime {
             .with_thread_ids(true)
             .with_writer(|| OutputDebugString)
             .with_filter(filter.clone());
-        //Console
+        // Console
         let (console, server) = console_subscriber::Builder::default().build();
 
         tracing_subscriber::registry().with(file).with(dbg).with(console).init();
@@ -156,29 +158,29 @@ impl Runtime {
         R: Future + Send + 'static
     {
         assert!(runtime::Handle::try_current().is_err());
-        //退出信号
+        // 退出信号
         let (stop_tx, stop_rx) = oneshot::channel();
-        //消息通道
+        // 消息通道
         let (msg_tx, msg_rx) = mpsc::unbounded_channel();
         let runloop = runloop(msg_rx);
 
-        //创建后台线程
+        // 创建后台线程
         let thrd_hdl = thread::Builder::new()
             .name("bkgnd-rt".to_owned())
             .spawn(move || {
-                //单线程运行时
+                // 单线程运行时
                 let rt = runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .expect("Create tokio runtime failed");
                 let local = task::LocalSet::new();
-                //运行
+                // 运行
                 rt.block_on(local.run_until(runloop));
                 rt.block_on(local);
-                //NOTE
-                //运行时可能创建了`blocking`后台线程，此处需要立即退出并且不等待线程结束信号
+                // NOTE
+                // 运行时可能创建了`blocking`后台线程，此处需要立即退出并且不等待线程结束信号
                 rt.shutdown_background();
-                //退出信号
+                // 退出信号
                 let _ = stop_tx.send(());
             })
             .expect("Create runtime thread failed");
@@ -196,22 +198,23 @@ impl Runtime {
 impl Drop for Runtime {
     fn drop(&mut self) {
         use std::os::windows::prelude::*;
+
         use windows::Win32::{
             Foundation::{HANDLE, WAIT_TIMEOUT}, System::Threading::WaitForSingleObject
         };
 
-        //关闭消息通道
+        // 关闭消息通道
         drop(self.msg_tx.take());
 
-        //检查线程是否存活，可能提前被`ExitProcess`销毁
+        // 检查线程是否存活，可能提前被`ExitProcess`销毁
         let thrd_hdl = self.thrd_hdl.take().unwrap();
         let rc = unsafe { WaitForSingleObject(HANDLE(thrd_hdl.as_raw_handle() as _), 0) };
         if rc == WAIT_TIMEOUT {
-            //NOTE 不能直接WAIT线程对象，因为此时可能正处于TLS销毁流程中，OS加了保护锁防止不同线程同时进入`DllMain`
-            //issue: https://github.com/rust-lang/rust/issues/74875
+            // NOTE 不能直接WAIT线程对象，因为此时可能正处于TLS销毁流程中，OS加了保护锁防止不同线程同时进入`DllMain`
+            // issue: https://github.com/rust-lang/rust/issues/74875
             let _ = self.stop_rx.take().unwrap().blocking_recv();
-            //FIXME
-            //短暂挂起使线程调用栈完全退出
+            // FIXME
+            // 短暂挂起使线程调用栈完全退出
             thread::sleep(Duration::from_millis(200));
         }
     }

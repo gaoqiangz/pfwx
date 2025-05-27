@@ -1,5 +1,6 @@
-use super::*;
 use reqwest::cookie::{CookieStore, Jar};
+
+use super::*;
 
 #[derive(Default)]
 pub struct HttpCookie {

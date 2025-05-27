@@ -1,5 +1,6 @@
-use super::*;
 use std::mem::replace;
+
+use super::*;
 
 #[derive(Default)]
 pub struct HttpForm {

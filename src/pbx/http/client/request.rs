@@ -1,5 +1,7 @@
-use super::{form::HttpForm, multipart::HttpMultipart, *};
-use crate::base::pfw;
+use std::{
+    future::Future, pin::Pin, result::Result as StdResult, sync::atomic::{AtomicU64, Ordering}, task::{ready, Context as TaskContext, Poll}, time::Duration
+};
+
 use bytes::Bytes;
 use futures_util::{
     future::{self, Either, FutureExt}, Stream
@@ -8,12 +10,12 @@ use http_body::Body as HttpBody;
 use reqwest::{
     header::{self, HeaderValue, CONTENT_LENGTH}, Body, RequestBuilder, Response, Result as ReqwestResult
 };
-use std::{
-    future::Future, pin::Pin, result::Result as StdResult, sync::atomic::{AtomicU64, Ordering}, task::{ready, Context as TaskContext, Poll}, time::Duration
-};
 use tokio::{
     task::yield_now, time::{self, Instant}
 };
+
+use super::{form::HttpForm, multipart::HttpMultipart, *};
+use crate::base::pfw;
 
 #[derive(Default)]
 pub struct HttpRequest {
@@ -209,7 +211,7 @@ impl HttpRequest {
         {
             let client = client.get_native_ref::<HttpClient>().expect("invalid httpclient");
             let recv_file_path = self.recv_file_path.clone();
-            //执行顺序锁
+            // 执行顺序锁
             let semaphore = client.semaphore.clone();
             let fut = if progress.unwrap_or_default() {
                 Either::Left(self.send_with_progress_impl(
@@ -283,7 +285,7 @@ impl HttpRequest {
         let mut total_size = 0;
         let sent_size = Arc::new(AtomicU64::new(0));
         if let Some(body) = req.body_mut().take() {
-            //优先从Content-Length获取
+            // 优先从Content-Length获取
             let mut content_length = if let Some(len) = req.headers().get(CONTENT_LENGTH) {
                 if let Ok(len) = len.to_str() {
                     len.parse::<u64>().ok()
@@ -297,21 +299,21 @@ impl HttpRequest {
                 content_length = body.size_hint().exact();
             }
             total_size = content_length.unwrap_or_default();
-            //替换Body捕获发送字节数
+            // 替换Body捕获发送字节数
             req.body_mut().replace(Body::wrap_stream(HttpBodyProgress::new(body, sent_size.clone())));
         }
 
         let mut resp = None;
         let mut req = Either::Left(raw_client.execute(req));
 
-        //定时器（每秒计算一次速率并回调通知对象）
+        // 定时器（每秒计算一次速率并回调通知对象）
         let mut tick_start = Instant::now();
         let mut tick_interval =
             time::interval_at(tick_start + Duration::from_secs(1), Duration::from_secs(1));
-        let mut tick_size: u64 = 0; //基准
+        let mut tick_size: u64 = 0; // 基准
         let mut tick_invoke = Either::Left(future::pending());
 
-        //完结回调事件流的标识
+        // 完结回调事件流的标识
         #[derive(Debug, PartialEq, Eq)]
         enum DoneFlag {
             Pending,

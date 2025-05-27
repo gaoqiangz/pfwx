@@ -1,5 +1,6 @@
+use std::{slice, sync::OnceLock};
+
 use pbni::pbx::{pbobject, pbsession, Object, Session};
-use std::slice;
 
 lazy_static::lazy_static! {
 static ref API: &'static Api = unsafe { Api::load() };
@@ -75,17 +76,12 @@ struct Api {
 
 impl Api {
     unsafe fn load() -> &'static Api {
-        static mut LIB: Option<libloading::Library> = None;
+        static LIB: OnceLock<libloading::Library> = OnceLock::new();
 
         type FnGetApi = extern "system" fn() -> *const Api;
 
-        if LIB.is_none() {
-            unsafe {
-                LIB = Some(libloading::Library::new("pfw.dll").expect("Cannot load module pfw.dll"));
-            }
-        }
-
-        let lib = LIB.as_ref().unwrap();
+        let lib =
+            LIB.get_or_init(|| libloading::Library::new("pfw.dll").expect("Cannot load module pfw.dll"));
         let api_fn = lib.get::<FnGetApi>(b"pfwAPI").expect("Cannot find entry symbol 'pfwAPI' at pfw.dll");
         &*api_fn()
     }

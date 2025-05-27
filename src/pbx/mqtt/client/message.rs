@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
+use paho_mqtt::MessageBuilder;
+
 use super::*;
 use crate::base::{conv, pfw};
-use paho_mqtt::MessageBuilder;
-use std::borrow::Cow;
 
 #[derive(Default)]
 pub struct MqttMessage {

@@ -1,9 +1,11 @@
-use crate::prelude::*;
+use std::{cell::RefCell, collections::HashMap, fs, mem, rc::Rc, sync::Arc, thread};
+
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
 use reqwest::{Client, Method};
-use std::{cell::RefCell, collections::HashMap, fs, mem, rc::Rc, sync::Arc, thread};
 use tokio::sync::Semaphore;
+
+use crate::prelude::*;
 
 mod config;
 mod response;
@@ -71,7 +73,7 @@ impl HttpClient {
                 self.on_error(id, &resp);
             }
         }
-        //NOTE 对象可能被销毁
+        // NOTE 对象可能被销毁
         if alive.is_alive() {
             self.on_complete(id, &resp);
         }

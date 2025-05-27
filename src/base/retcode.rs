@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
-use pbni::pbx::{FromValue, Result as PBXResult, ToValue, Value, PBXRESULT};
 use std::{convert::Infallible, ops::FromResidual};
+
+use pbni::pbx::{FromValue, Result as PBXResult, ToValue, Value, PBXRESULT};
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

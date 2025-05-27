@@ -1,6 +1,8 @@
-use super::*;
-use paho_mqtt::{ClientPersistence, ConnectOptions, CreateOptions, PersistenceType, SslOptionsBuilder};
 use std::{collections::HashMap, mem::replace};
+
+use paho_mqtt::{ClientPersistence, ConnectOptions, CreateOptions, PersistenceType, SslOptionsBuilder};
+
+use super::*;
 
 pub struct MqttConfigEx {
     pub offline_queue: bool

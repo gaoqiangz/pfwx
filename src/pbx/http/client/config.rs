@@ -1,8 +1,10 @@
-use super::{cookie::HttpCookie, *};
+use std::time::Duration;
+
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue}, Certificate, ClientBuilder, Identity, Proxy
 };
-use std::time::Duration;
+
+use super::{cookie::HttpCookie, *};
 
 pub struct HttpClientConfigEx {
     /// 异步请求-最大并发数

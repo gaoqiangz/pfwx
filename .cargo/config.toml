@@ -1,11 +1,14 @@
 [build]
-target = "i686-pc-windows-msvc"
+target = "i686-win7-windows-msvc"
 
-[target.i686-pc-windows-msvc]
+[target.i686-win7-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static", "--cfg", "tokio_unstable"]
 
+[unstable]
+build-std = ["std", "panic_abort"]
+
 [env]
-i686_PC_WINDOWS_MSVC_OPENSSL_STATIC = { value = "1", force = true }
-i686_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/include", force = true }
-i686_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR = { value = "C:/Program Files (x86)/OpenSSL-Win32/lib/VC/static", force = true }
-i686_PC_WINDOWS_MSVC_OPENSSL_LIBS = { value = "libcrypto32MT:libssl32MT", force = true }
+I686_WIN7_WINDOWS_MSVC_OPENSSL_STATIC = "1"
+I686_WIN7_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR = "C:/Program Files (x86)/OpenSSL-Win32/include"
+I686_WIN7_WINDOWS_MSVC_OPENSSL_LIB_DIR = "C:/Program Files (x86)/OpenSSL-Win32/lib/VC/static"
+I686_WIN7_WINDOWS_MSVC_OPENSSL_LIBS = "libcrypto32MT:libssl32MT"

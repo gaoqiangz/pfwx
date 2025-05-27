@@ -1,16 +1,18 @@
-use super::*;
-use crate::{
-    base::{conv, pfw}, reactor::HandlerInvoker
-};
+use std::{borrow::Cow, fmt::Display, time::Duration};
+
 use bytes::{Bytes, BytesMut};
 use futures_util::future::{self, Either, FutureExt};
 use mime::Mime;
 use reqwest::{
     header::{self, HeaderMap}, Response, StatusCode
 };
-use std::{borrow::Cow, fmt::Display, time::Duration};
 use tokio::{
     fs::File, io::AsyncWriteExt, task::yield_now, time::{self, Instant}
+};
+
+use super::*;
+use crate::{
+    base::{conv, pfw}, reactor::HandlerInvoker
 };
 
 #[derive(Default)]
@@ -425,14 +427,14 @@ impl HttpResponseInner {
             BytesMut::with_capacity(total_size.max(1024 * 1024) as usize)
         };
 
-        //定时器（每秒计算一次速率并回调通知对象）
+        // 定时器（每秒计算一次速率并回调通知对象）
         let mut tick_start = Instant::now();
         let mut tick_interval =
             time::interval_at(tick_start + Duration::from_secs(1), Duration::from_secs(1));
-        let mut tick_size: u64 = 0; //基准
+        let mut tick_size: u64 = 0; // 基准
         let mut tick_invoke = Either::Left(future::pending());
 
-        //完结回调事件流的标识
+        // 完结回调事件流的标识
         #[derive(PartialEq, Eq)]
         enum DoneFlag {
             Pending,

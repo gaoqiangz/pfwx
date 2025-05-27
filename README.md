@@ -5,12 +5,11 @@ PowerFramework :heart: Rust
 ## 环境
 
 - rustc: 1.51+
-- toolchain: nightly-2023-12-28
+- toolchain: nightly
 
 > - 目前需要`nightly`版本才能编译 ([try_trait_v2](https://github.com/rust-lang/rust/issues/84277)稳定后可支持`stable`版本)
-> - 当前(2024-03-08)很多依赖库不兼容`i686-win7-windows-msvc`，需要使用`1.75.0`对应的`nigtly`版本以支持Win7平台
 
-- target: i686-pc-windows-msvc
+- target: i686-win7-windows-msvc
 - CMake (<https://cmake.org/download/>)
 - OpenSSL-Win32 (<https://slproweb.com/products/Win32OpenSSL.html>)
 

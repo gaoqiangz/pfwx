@@ -1,11 +1,13 @@
-use crate::prelude::*;
+use std::{mem::take, time::Duration};
+
 use paho_mqtt::{
     async_client::AsyncClient, ConnectOptionsBuilder, ConnectToken, CreateOptionsBuilder, DeliveryToken, Message, SubscribeToken
 };
 use pbni::{pbx::*, prelude::*};
 use reactor::*;
-use std::{mem::take, time::Duration};
 use tokio::time;
+
+use crate::prelude::*;
 
 mod config;
 mod message;
@@ -83,10 +85,10 @@ impl MqttClient {
                             } else {
                                 true
                             };
-                            //TODO - 支持`session present`检测
+                            // TODO - 支持`session present`检测
                             this.on_open(is_reconnect, false);
-                            //处理离线消息
-                            let client = this.client.as_ref().unwrap(); //SAFETY
+                            // 处理离线消息
+                            let client = this.client.as_ref().unwrap(); // SAFETY
                             if !this.offline_publish.is_empty() {
                                 let offline_publish = take(&mut this.offline_publish);
                                 for msg in offline_publish {

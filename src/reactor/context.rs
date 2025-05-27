@@ -1,20 +1,22 @@
-use super::{mem::UnsafeBox, runtime};
-use pbni::{
-    pbx::{AliveState, Session}, pbx_throw
-};
 use std::{
     cell::RefCell, mem, panic::{self, AssertUnwindSafe}, rc::Rc, sync::{
         atomic::{AtomicUsize, Ordering}, Arc, Mutex
     }, thread
+};
+
+use pbni::{
+    pbx::{AliveState, Session}, pbx_throw
 };
 use tokio::{
     sync::{oneshot, Mutex as AsyncMutex}, time
 };
 use windows::{
     core::{s, PCSTR}, Win32::{
-        Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM}, System::LibraryLoader::GetModuleHandleA, UI::WindowsAndMessaging::WM_USER
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM}, System::LibraryLoader::GetModuleHandleA, UI::WindowsAndMessaging::WM_USER
     }
 };
+
+use super::{mem::UnsafeBox, runtime};
 
 thread_local! {
 static CURRENT_CONTEXT: RefCell<Option<SyncContext>> = RefCell::new(None);
@@ -27,7 +29,8 @@ const WM_SYNC_CONTEXT: u32 = WM_USER + 0xff00;
 #[derive(Clone)]
 pub struct SyncContext {
     inner: Rc<SyncContextInner>,
-    hwnd: Arc<AsyncMutex<HWND>>
+    // 加锁缓解UI线程出现消息积压，避免系统消息队列溢出，节省系统资源
+    hwnd: Arc<AsyncMutex<UnsafeHWND>>
 }
 
 impl SyncContext {
@@ -42,20 +45,20 @@ impl SyncContext {
         })
     }
 
-    //创建UI线程同步上下文
+    // 创建UI线程同步上下文
     fn new(pbsession: Session) -> SyncContext {
         use windows::{
             core::Error as WinError, Win32::{
                 Foundation::*, UI::WindowsAndMessaging::{
-                    CreateWindowExA, RegisterClassA, SetWindowLongPtrA, GWL_USERDATA, HMENU, HWND_MESSAGE, WINDOW_EX_STYLE, WNDCLASSA, WS_POPUP
+                    CreateWindowExA, RegisterClassA, SetWindowLongPtrA, GWL_USERDATA, HWND_MESSAGE, WINDOW_EX_STYLE, WNDCLASSA, WS_POPUP
                 }
             }
         };
 
         unsafe {
-            let hinst = GetModuleHandleA(PCSTR::null()).unwrap_or_default();
+            let hinst = HINSTANCE::from(GetModuleHandleA(None).expect("GetModuleHandleA failed"));
             let mut atom = WINDOW_CLASS_ATOM.lock().unwrap();
-            //注册窗口类
+            // 注册窗口类
             if *atom == 0 {
                 let mut cls: WNDCLASSA = mem::zeroed();
                 cls.lpfnWndProc = Some(Self::wnd_proc);
@@ -66,7 +69,7 @@ impl SyncContext {
                     panic!("RegisterClass failed: {:?}", WinError::from_win32());
                 }
             }
-            //创建后台消息窗口
+            // 创建后台消息窗口
             let hwnd = CreateWindowExA(
                 WINDOW_EX_STYLE::default(),
                 PCSTR::from_raw(*atom as _),
@@ -76,15 +79,13 @@ impl SyncContext {
                 0,
                 0,
                 0,
-                HWND_MESSAGE, //message-only
-                HMENU::default(),
-                hinst,
+                Some(HWND_MESSAGE), // message-only
+                None,
+                Some(hinst),
                 None
-            );
-            if hwnd == HWND::default() {
-                panic!("CreateWindowEx failed: {:?}", WinError::from_win32());
-            }
-            //计数
+            )
+            .expect("CreateWindowExA failed");
+            // 计数
             CONTEXT_COUNT.fetch_add(1, Ordering::Relaxed);
 
             let inner = Rc::new(SyncContextInner {
@@ -92,10 +93,10 @@ impl SyncContext {
                 pbsession
             });
 
-            //绑定上下文
+            // 绑定上下文
             SetWindowLongPtrA(hwnd, GWL_USERDATA, inner.as_ref() as *const SyncContextInner as _);
 
-            let hwnd = Arc::new(AsyncMutex::new(hwnd));
+            let hwnd = Arc::new(AsyncMutex::new(UnsafeHWND(hwnd)));
 
             SyncContext {
                 inner,
@@ -116,10 +117,10 @@ impl SyncContext {
         loop {
             unsafe {
                 let mut msg = MSG::default();
-                if PeekMessageA(&mut msg, self.inner.hwnd, WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) ==
+                if PeekMessageA(&mut msg, Some(self.inner.hwnd), WM_SYNC_CONTEXT, WM_SYNC_CONTEXT, PM_REMOVE) ==
                     true
                 {
-                    TranslateMessage(&mut msg);
+                    let _ = TranslateMessage(&mut msg);
                     DispatchMessageA(&msg);
                 } else {
                     break;
@@ -136,7 +137,7 @@ impl SyncContext {
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
             let session = ctx.pbsession.clone();
             let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
-            let has_rx = pack.tx.send(()).is_ok(); //接收
+            let has_rx = pack.tx.send(()).is_ok(); // 接收
             match pack.payload {
                 MessagePayload::Invoke(payload) => {
                     if let Err(e) = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -172,7 +173,7 @@ impl SyncContext {
     }
 }
 
-//销毁时回收线程资源
+// 销毁时回收线程资源
 struct SyncContextInner {
     hwnd: HWND,
     pbsession: Session
@@ -183,20 +184,20 @@ impl Drop for SyncContextInner {
         use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, UnregisterClassA};
 
         unsafe {
-            //销毁窗口
-            DestroyWindow(self.hwnd);
+            // 销毁窗口
+            let _ = DestroyWindow(self.hwnd);
             if CONTEXT_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
-                //注销窗口类
+                // 注销窗口类
                 let mut atom = WINDOW_CLASS_ATOM.lock().unwrap();
                 if *atom != 0 {
-                    UnregisterClassA(
+                    let _ = UnregisterClassA(
                         PCSTR::from_raw(*atom as _),
-                        GetModuleHandleA(PCSTR::null()).unwrap_or_default()
+                        Some(GetModuleHandleA(None).unwrap_or_default().into())
                     );
                     *atom = 0;
                 }
-                //FIXME
-                //销毁运行时
+                // FIXME
+                // 销毁运行时
                 runtime::shutdown();
             }
         }
@@ -230,12 +231,12 @@ struct PayloadPanic {
 /// 消息派发器
 #[derive(Clone)]
 pub struct Dispatcher {
-    //加锁缓解UI线程出现消息积压，避免系统消息队列溢出，节省系统资源
-    hwnd: Arc<AsyncMutex<HWND>>
+    // 加锁缓解UI线程出现消息积压，避免系统消息队列溢出，节省系统资源
+    hwnd: Arc<AsyncMutex<UnsafeHWND>>
 }
 
 impl Dispatcher {
-    fn new(hwnd: Arc<AsyncMutex<HWND>>) -> Dispatcher {
+    fn new(hwnd: Arc<AsyncMutex<UnsafeHWND>>) -> Dispatcher {
         Dispatcher {
             hwnd
         }
@@ -270,14 +271,14 @@ impl Dispatcher {
 
         let hwnd = self.hwnd.lock().await;
 
-        if let Some((mut rx, alive, msg_pack)) = self.post_message(*hwnd, payload) {
-            //等待消息被接收
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(hwnd.0, payload) {
+            // 等待消息被接收
             loop {
                 tokio::select! {
                     _ = &mut rx => return true,
                     _ = time::sleep(time::Duration::from_millis(100)) => {
                         unsafe {
-                            if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(*hwnd) == false {
+                            if alive.as_ref().map(|v|v.is_dead()).unwrap_or_default() || IsWindow(Some(hwnd.0)) == false {
                                 //需要再次检查信号，避免目标销毁前接收了消息
                                 if rx.try_recv().is_ok() {
                                     return true;
@@ -339,15 +340,17 @@ impl Dispatcher {
 
         let hwnd = self.hwnd.blocking_lock();
 
-        if let Some((mut rx, alive, msg_pack)) = self.post_message(*hwnd, payload) {
-            //等待消息被接收
+        if let Some((mut rx, alive, msg_pack)) = self.post_message(hwnd.0, payload) {
+            // 等待消息被接收
             loop {
                 if rx.try_recv().is_ok() {
                     return true;
                 }
                 unsafe {
-                    if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() || IsWindow(*hwnd) == false {
-                        //接收目标被销毁，需要释放内存
+                    if alive.as_ref().map(|v| v.is_dead()).unwrap_or_default() ||
+                        IsWindow(Some(hwnd.0)) == false
+                    {
+                        // 接收目标被销毁，需要释放内存
                         let msg_pack = msg_pack.unpack();
                         if let MessagePayload::Invoke(payload) = msg_pack.payload {
                             (payload.handler)(payload.param, false);
@@ -378,7 +381,7 @@ impl Dispatcher {
             None
         };
 
-        //参数打包
+        // 参数打包
         let (tx, rx) = oneshot::channel();
         let msg_pack = UnsafeBox::pack(MessagePack {
             payload,
@@ -387,16 +390,18 @@ impl Dispatcher {
 
         loop {
             unsafe {
-                if PostMessageA(hwnd, WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _)) == false {
-                    //消息队列满了
-                    if GetLastError() == ERROR_NOT_ENOUGH_QUOTA {
+                if let Err(e) =
+                    PostMessageA(Some(hwnd), WM_SYNC_CONTEXT, WPARAM(0), LPARAM(msg_pack.as_raw() as _))
+                {
+                    // 消息队列满了
+                    if e.code() == ERROR_NOT_ENOUGH_QUOTA.to_hresult() {
                         #[cfg(feature = "trace")]
                         warn!("Windows message queue is full");
-                        //等待后重试
+                        // 等待后重试
                         thread::sleep(time::Duration::from_millis(100));
                         continue;
                     }
-                    //窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
+                    // 窗口已经被销毁，说明此时目标线程已经不存在，需要释放内存
                     let msg_pack = msg_pack.unpack();
                     if let MessagePayload::Invoke(payload) = msg_pack.payload {
                         (payload.handler)(payload.param, false);
@@ -413,3 +418,9 @@ impl Dispatcher {
         Some((rx, alive, msg_pack))
     }
 }
+
+/// 用于跨线程传递HWND
+struct UnsafeHWND(HWND);
+
+unsafe impl Send for UnsafeHWND {}
+unsafe impl Sync for UnsafeHWND {}
