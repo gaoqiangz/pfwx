@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::future::{self, Either, FutureExt};
 use mime::Mime;
 use reqwest::{
-    header::{self, HeaderMap}, Response, StatusCode
+    header::{self, HeaderMap}, Response, StatusCode, Url, Version
 };
 use tokio::{
     fs::File, io::AsyncWriteExt, task::yield_now, time::{self, Instant}
@@ -230,9 +230,47 @@ impl HttpResponse {
             .unwrap_or_default()
     }
 
+    #[method(name = "GetUrl")]
+    fn url(&self) -> String {
+        if let Some(inner) = self.inner.as_ref() {
+            match inner {
+                HttpResponseInner::ReceiveError {
+                    url,
+                    ..
+                } => url.to_string(),
+                HttpResponseInner::Received {
+                    url,
+                    ..
+                } => url.to_string(),
+                _ => "".to_owned()
+            }
+        } else {
+            "".to_owned()
+        }
+    }
+
     #[method(name = "GetHttpStatus")]
     fn http_status(&self) -> pbulong {
         self.status().map(|status| status.as_u16() as pbulong).unwrap_or_default()
+    }
+
+    #[method(name = "GetHttpVersion")]
+    fn http_version(&self) -> String {
+        if let Some(inner) = self.inner.as_ref() {
+            match inner {
+                HttpResponseInner::ReceiveError {
+                    version,
+                    ..
+                } => format!("{:?}", version),
+                HttpResponseInner::Received {
+                    version,
+                    ..
+                } => format!("{:?}", version),
+                _ => "".to_owned()
+            }
+        } else {
+            "".to_owned()
+        }
     }
 
     #[method(name = "GetErrorInfo")]
@@ -306,12 +344,16 @@ pub enum HttpResponseInner {
         err_info: String
     },
     ReceiveError {
+        url: Url,
+        version: Version,
         status: StatusCode,
         headers: HeaderMap,
         content_type: Option<Mime>,
         err_info: String
     },
     Received {
+        url: Url,
+        version: Version,
         status: StatusCode,
         headers: HeaderMap,
         content_type: Option<Mime>,
@@ -327,12 +369,15 @@ impl HttpResponseInner {
     pub fn is_cancelled(&self) -> bool { matches!(self, HttpResponseInner::Cancelled) }
     pub fn is_succ(&self) -> bool { self.is_received() }
 
+    pub fn cancelled() -> HttpResponseInner { HttpResponseInner::Cancelled }
     pub fn send_error(err_info: impl Display) -> HttpResponseInner {
         HttpResponseInner::SendError {
             err_info: err_info.to_string()
         }
     }
-    pub fn receive_error(
+    fn receive_error(
+        url: Url,
+        version: Version,
         status: StatusCode,
         headers: HeaderMap,
         err_info: impl Display
@@ -342,18 +387,28 @@ impl HttpResponseInner {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<Mime>().ok());
         HttpResponseInner::ReceiveError {
+            url,
+            version,
             status,
             headers,
             content_type,
             err_info: err_info.to_string()
         }
     }
-    pub fn received(status: StatusCode, headers: HeaderMap, data: Bytes) -> HttpResponseInner {
+    fn received(
+        url: Url,
+        version: Version,
+        status: StatusCode,
+        headers: HeaderMap,
+        data: Bytes
+    ) -> HttpResponseInner {
         let content_type = headers
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<Mime>().ok());
         HttpResponseInner::Received {
+            url,
+            version,
             status,
             headers,
             content_type,
@@ -361,14 +416,14 @@ impl HttpResponseInner {
         }
     }
 
-    pub fn cancelled() -> HttpResponseInner { HttpResponseInner::Cancelled }
-
     pub async fn receive(mut resp: Response, recv_file_path: Option<String>) -> HttpResponseInner {
+        let url = resp.url().clone();
+        let version = resp.version();
         let status = resp.status();
         let headers = resp.headers().clone();
         if let Some(file_path) = recv_file_path {
             if let Err(e) = crate::base::fs::create_file_dir_all(&file_path) {
-                HttpResponseInner::receive_error(status, headers, e)
+                HttpResponseInner::receive_error(url, version, status, headers, e)
             } else {
                 match File::create(file_path).await {
                     Ok(mut file) => {
@@ -376,23 +431,27 @@ impl HttpResponseInner {
                             match chunk {
                                 Ok(chunk) => {
                                     if let Err(e) = file.write_all(&chunk).await {
-                                        return HttpResponseInner::receive_error(status, headers, e);
+                                        return HttpResponseInner::receive_error(
+                                            url, version, status, headers, e
+                                        );
                                     }
                                 },
                                 Err(e) => {
-                                    return HttpResponseInner::receive_error(status, headers, e);
+                                    return HttpResponseInner::receive_error(
+                                        url, version, status, headers, e
+                                    );
                                 }
                             }
                         }
-                        HttpResponseInner::received(status, headers, Default::default())
+                        HttpResponseInner::received(url, version, status, headers, Default::default())
                     },
-                    Err(e) => HttpResponseInner::receive_error(status, headers, e)
+                    Err(e) => HttpResponseInner::receive_error(url, version, status, headers, e)
                 }
             }
         } else {
             match resp.bytes().await {
-                Ok(data) => HttpResponseInner::received(status, headers, data),
-                Err(e) => HttpResponseInner::receive_error(status, headers, e)
+                Ok(data) => HttpResponseInner::received(url, version, status, headers, data),
+                Err(e) => HttpResponseInner::receive_error(url, version, status, headers, e)
             }
         }
     }
@@ -403,16 +462,17 @@ impl HttpResponseInner {
         mut resp: Response,
         recv_file_path: Option<String>
     ) -> HttpResponseInner {
+        let url = resp.url().clone();
+        let version = resp.version();
         let status = resp.status();
         let headers = resp.headers().clone();
-
         let mut file = if let Some(file_path) = recv_file_path {
             if let Err(e) = crate::base::fs::create_file_dir_all(&file_path) {
-                return HttpResponseInner::receive_error(status, headers, e);
+                return HttpResponseInner::receive_error(url, version, status, headers, e);
             } else {
                 match File::create(file_path).await {
                     Ok(file) => Some(file),
-                    Err(e) => return HttpResponseInner::receive_error(status, headers, e)
+                    Err(e) => return HttpResponseInner::receive_error(url, version, status, headers, e)
                 }
             }
         } else {
@@ -452,7 +512,7 @@ impl HttpResponseInner {
                             recv_size += chunk.len() as u64;
                             if let Some(file) = file.as_mut() {
                                 if let Err(e) = file.write_all(&chunk).await {
-                                    return HttpResponseInner::receive_error(status, headers, e);
+                                    return HttpResponseInner::receive_error(url, version, status, headers,  e);
                                 }
                             } else {
                                 recv_data.extend_from_slice(&chunk);
@@ -466,10 +526,10 @@ impl HttpResponseInner {
                                 yield_now().await;
                                 continue;
                             }
-                            return HttpResponseInner::received(status, headers, recv_data.freeze());
+                            return HttpResponseInner::received(url, version, status, headers,  recv_data.freeze());
                         },
                         Err(e) => {
-                            return HttpResponseInner::receive_error(status, headers, e);
+                            return HttpResponseInner::receive_error(url, version, status, headers, e);
                         }
                     }
                 },
