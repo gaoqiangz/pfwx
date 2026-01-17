@@ -91,7 +91,7 @@ impl HttpClient {
     fn has_async_request(&self) -> bool { !self.pending.borrow().is_empty() }
 
     #[method(name = "Request")]
-    fn request(&mut self, method: String, url: String) -> Object {
+    fn request<'a>(&mut self, method: String, url: String) -> Object<'a> {
         let method = match Method::from_str(&method.to_ascii_uppercase()) {
             Ok(method) => method,
             Err(_) => panic!("Unsupport method: {method}")

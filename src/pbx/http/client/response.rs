@@ -299,7 +299,7 @@ impl HttpResponse {
     }
 
     #[method(name = "GetDataJSON", overload = 1)]
-    fn data_json(&self, encoding: Option<pblong>) -> Object {
+    fn data_json<'a>(&self, encoding: Option<pblong>) -> Object<'a> {
         let data = if let Some(data) = self.data() {
             match encoding {
                 Some(encoding) => conv::decode(&data, encoding),
@@ -319,7 +319,7 @@ impl HttpResponse {
     }
 
     #[method(name = "GetDataXML", overload = 1)]
-    fn data_xml(&self, encoding: Option<pblong>) -> Object {
+    fn data_xml<'a>(&self, encoding: Option<pblong>) -> Object<'a> {
         let data = if let Some(data) = self.data() {
             match encoding {
                 Some(encoding) => conv::decode(&data, encoding),

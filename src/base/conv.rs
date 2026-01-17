@@ -42,7 +42,7 @@ fn codepage(encoding: pblong) -> usize {
 /// 通过指定编码进行字符串编码
 ///
 /// NOTE 默认`utf-8`
-pub fn encode(data: &str, encoding: pblong) -> Cow<[u8]> {
+pub fn encode<'a>(data: &'a str, encoding: pblong) -> Cow<'a, [u8]> {
     let codec =
         encoding::label::encoding_from_windows_code_page(codepage(encoding)).unwrap_or(encoding::all::UTF_8);
     if codec.name() == "utf-8" {
@@ -55,7 +55,7 @@ pub fn encode(data: &str, encoding: pblong) -> Cow<[u8]> {
 /// 通过指定编码进行字符串解码
 ///
 /// NOTE 默认`utf-8`
-pub fn decode(data: &[u8], encoding: pblong) -> Cow<str> {
+pub fn decode<'a>(data: &'a [u8], encoding: pblong) -> Cow<'a, str> {
     let codec =
         encoding::label::encoding_from_windows_code_page(codepage(encoding)).unwrap_or(encoding::all::UTF_8);
     if codec.name() == "utf-8" {

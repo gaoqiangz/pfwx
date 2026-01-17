@@ -133,7 +133,7 @@ impl MqttMessage {
     fn payload_binary(&self) -> &[u8] { self.inner.as_ref().map(|msg| msg.payload()).unwrap_or_default() }
 
     #[method(name = "GetDataString", overload = 1)]
-    fn payload_string(&self, encoding: Option<pblong>) -> Cow<str> {
+    fn payload_string(&self, encoding: Option<pblong>) -> Cow<'_, str> {
         if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
             conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
         } else {
@@ -142,7 +142,7 @@ impl MqttMessage {
     }
 
     #[method(name = "GetDataJSON", overload = 1)]
-    fn payload_json(&self, encoding: Option<pblong>) -> Object {
+    fn payload_json<'a>(&self, encoding: Option<pblong>) -> Object<'a> {
         let data = if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
             conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
         } else {
@@ -152,7 +152,7 @@ impl MqttMessage {
     }
 
     #[method(name = "GetDataXML", overload = 1)]
-    fn payload_xml(&self, encoding: Option<pblong>) -> Object {
+    fn payload_xml<'a>(&self, encoding: Option<pblong>) -> Object<'a> {
         let data = if let Some(data) = self.inner.as_ref().map(|msg| msg.payload()) {
             conv::decode(&data, encoding.unwrap_or(conv::ENCODING_UTF8))
         } else {
