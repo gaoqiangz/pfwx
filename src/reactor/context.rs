@@ -60,6 +60,8 @@ impl SyncContext {
             let mut atom = WINDOW_CLASS_ATOM.lock().unwrap();
             // 注册窗口类
             if *atom == 0 {
+                #[cfg(feature = "trace")]
+                debug!("Register context window class");
                 let mut cls: WNDCLASSA = mem::zeroed();
                 cls.lpfnWndProc = Some(Self::wnd_proc);
                 cls.hInstance = hinst;
@@ -70,6 +72,8 @@ impl SyncContext {
                 }
             }
             // 创建后台消息窗口
+            #[cfg(feature = "trace")]
+            debug!("Create context window");
             let hwnd = CreateWindowExA(
                 WINDOW_EX_STYLE::default(),
                 PCSTR::from_raw(*atom as _),
@@ -134,6 +138,8 @@ impl SyncContext {
         use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcA, GetWindowLongPtrA, GWL_USERDATA};
 
         if msg == WM_SYNC_CONTEXT {
+            #[cfg(feature = "trace")]
+            debug!("Context received message");
             let ctx = &*(GetWindowLongPtrA(hwnd, GWL_USERDATA) as *const SyncContextInner);
             let session = ctx.pbsession.clone();
             let pack: MessagePack = UnsafeBox::from_raw(mem::transmute(lparam)).unpack();
@@ -184,12 +190,16 @@ impl Drop for SyncContextInner {
         use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, UnregisterClassA};
 
         unsafe {
+            #[cfg(feature = "trace")]
+            debug!("Destroy context window");
             // 销毁窗口
             let _ = DestroyWindow(self.hwnd);
             if CONTEXT_COUNT.fetch_sub(1, Ordering::Relaxed) == 1 {
                 // 注销窗口类
                 let mut atom = WINDOW_CLASS_ATOM.lock().unwrap();
                 if *atom != 0 {
+                    #[cfg(feature = "trace")]
+                    debug!("Unregister context window class");
                     let _ = UnregisterClassA(
                         PCSTR::from_raw(*atom as _),
                         Some(GetModuleHandleA(None).unwrap_or_default().into())

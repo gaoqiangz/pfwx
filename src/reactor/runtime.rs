@@ -21,6 +21,8 @@ where
     let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime failed");
     if runtime.is_none() {
         *runtime = Some(Runtime::new());
+        #[cfg(feature = "trace")]
+        debug!("Global runtime start");
     }
     let runtime_tx = runtime.as_ref().unwrap().msg_tx.as_ref().unwrap();
     #[cfg(feature = "trace")]
@@ -35,8 +37,12 @@ where
 
 /// 销毁后台运行时
 pub fn shutdown() {
+    #[cfg(feature = "trace")]
     let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime failed");
-    *runtime = None;
+    if runtime.is_some() {
+        *runtime = None;
+        debug!("Global runtime shutdown");
+    }
 }
 
 /// 异步任务
