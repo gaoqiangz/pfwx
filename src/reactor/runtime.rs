@@ -37,10 +37,10 @@ where
 
 /// 销毁后台运行时
 pub fn shutdown() {
-    #[cfg(feature = "trace")]
     let mut runtime = GLOBAL_RUNTIME.lock().expect("Lock runtime failed");
     if runtime.is_some() {
         *runtime = None;
+        #[cfg(feature = "trace")]
         debug!("Global runtime shutdown");
     }
 }
